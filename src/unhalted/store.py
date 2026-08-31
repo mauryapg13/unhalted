@@ -3,12 +3,22 @@
 SQLite, accessed directly. The audit table is append-only by convention: nothing
 in this module updates or deletes a row in it, because the timeline is the only
 account of what happened that anyone should trust.
+
+Thread safety: a sqlite3 connection is not safe for concurrent use, and FastAPI
+runs sync handlers in a threadpool, so two webhooks arriving together reach this
+class at the same time. Every use of the connection is therefore serialised
+behind a re-entrant lock. Re-entrant because the write path reads first —
+`open_case` checks for an existing case before opening a transaction.
+
+Serialising all access is the right trade here: the workload is one writer and
+low volume. It is not a reason to reach for a server database.
 """
 
 from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -73,6 +83,7 @@ class Store:
         self.path = path or default_db_path()
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -80,17 +91,29 @@ class Store:
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        """One transaction. Used where several writes must land together."""
-        try:
+        """One transaction, held for the duration against other threads.
+
+        Without the lock, a concurrent request's commit lands this one's
+        half-written rows, and its rollback discards them.
+        """
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    @contextmanager
+    def _read(self) -> Iterator[sqlite3.Connection]:
+        """A read, serialised against writers on the same connection."""
+        with self._lock:
             yield self._conn
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
 
     # -- cases ---------------------------------------------------------------
 
@@ -100,7 +123,21 @@ class Store:
         Razorpay retries webhook delivery, so the same payment can arrive more
         than once. A duplicate must not open a second case or it would be
         counted twice in recovery figures.
+
+        The check and the insert are held under one lock. Taking the lock
+        separately for each would let a second thread read "no such case"
+        between them and try to insert the same payment — check-then-act with a
+        gap in the middle.
+
+        The unique index on `signals.payment_id` is the backstop. The lock is
+        per-process, so two uvicorn workers would not see each other; the
+        constraint holds regardless, and losing that race returns the case the
+        winner opened rather than raising.
         """
+        with self._lock:
+            return self._open_case_locked(signal)
+
+    def _open_case_locked(self, signal: FailureSignal) -> Case:
         existing = self.case_for_payment(signal.payment_id)
         if existing:
             return existing
@@ -111,6 +148,17 @@ class Store:
             amount_paise=signal.amount_paise,
             opened_at=signal.occurred_at,
         )
+        try:
+            self._insert_case(case, signal)
+        except sqlite3.IntegrityError:
+            # Another process won the race on signals.payment_id.
+            winner = self.case_for_payment(signal.payment_id)
+            if winner is None:
+                raise
+            return winner
+        return case
+
+    def _insert_case(self, case: Case, signal: FailureSignal) -> None:
         with self._tx() as conn:
             conn.execute(
                 "INSERT INTO cases (id, customer_ref, amount_paise, state, opened_at, retry_count)"
@@ -135,17 +183,18 @@ class Store:
                     signal.model_dump_json(),
                 ),
             )
-        return case
 
     def get_case(self, case_id: str) -> Case | None:
-        row = self._conn.execute("SELECT * FROM cases WHERE id = ?", (case_id,)).fetchone()
+        with self._read() as conn:
+            row = conn.execute("SELECT * FROM cases WHERE id = ?", (case_id,)).fetchone()
         return self._row_to_case(row) if row else None
 
     def case_for_payment(self, payment_id: str) -> Case | None:
-        row = self._conn.execute(
-            "SELECT c.* FROM cases c JOIN signals s ON s.case_id = c.id WHERE s.payment_id = ?",
-            (payment_id,),
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT c.* FROM cases c JOIN signals s ON s.case_id = c.id WHERE s.payment_id = ?",
+                (payment_id,),
+            ).fetchone()
         return self._row_to_case(row) if row else None
 
     def set_state(self, case_id: str, state: CaseState) -> None:
@@ -173,9 +222,11 @@ class Store:
             )
 
     def latest_diagnosis(self, case_id: str) -> Diagnosis | None:
-        row = self._conn.execute(
-            "SELECT payload FROM diagnoses WHERE case_id = ? ORDER BY id DESC LIMIT 1", (case_id,)
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT payload FROM diagnoses WHERE case_id = ? ORDER BY id DESC LIMIT 1",
+                (case_id,),
+            ).fetchone()
         return Diagnosis.model_validate_json(row["payload"]) if row else None
 
     def record(self, record: AuditRecord) -> None:
@@ -192,15 +243,17 @@ class Store:
             )
 
     def timeline(self, case_id: str) -> list[AuditRecord]:
-        rows = self._conn.execute(
-            "SELECT payload FROM audit WHERE case_id = ? ORDER BY id ASC", (case_id,)
-        ).fetchall()
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM audit WHERE case_id = ? ORDER BY id ASC", (case_id,)
+            ).fetchall()
         return [AuditRecord.model_validate_json(r["payload"]) for r in rows]
 
     def signals(self, case_id: str) -> list[FailureSignal]:
-        rows = self._conn.execute(
-            "SELECT payload FROM signals WHERE case_id = ? ORDER BY id ASC", (case_id,)
-        ).fetchall()
+        with self._read() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM signals WHERE case_id = ? ORDER BY id ASC", (case_id,)
+            ).fetchall()
         return [FailureSignal.model_validate_json(r["payload"]) for r in rows]
 
     # -- idempotency ---------------------------------------------------------
@@ -213,9 +266,10 @@ class Store:
         redelivery would open a second case and the same rupees would be
         counted twice in recovery figures.
         """
-        row = self._conn.execute(
-            "SELECT case_id FROM processed_events WHERE event_id = ?", (event_id,)
-        ).fetchone()
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT case_id FROM processed_events WHERE event_id = ?", (event_id,)
+            ).fetchone()
         return row["case_id"] if row else None
 
     def mark_event(self, event_id: str, case_id: str, at: datetime) -> None:
@@ -226,5 +280,6 @@ class Store:
             )
 
     def all_cases(self) -> list[Case]:
-        rows = self._conn.execute("SELECT * FROM cases ORDER BY opened_at DESC").fetchall()
+        with self._read() as conn:
+            rows = conn.execute("SELECT * FROM cases ORDER BY opened_at DESC").fetchall()
         return [self._row_to_case(r) for r in rows]
