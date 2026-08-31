@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Repository workflow enforcement, independent of whatever tool is driving git.
-#
-# Refuses commits on `main` — work reaches the trunk by pull request from a
-# short-lived branch (see CHECKPOINTS.md) — and warns when a commit carries no
-# CHANGELOG.md change.
+# Refuses commits on `main`. Work reaches the trunk by pull request from a
+# short-lived branch — see CHECKPOINTS.md.
 #
 # Installed by: git config core.hooksPath .githooks
 
@@ -14,9 +11,5 @@ if [ "$branch" = "main" ]; then
   echo "  work reaches the trunk by pull request from a short-lived branch." >&2
   echo "  create one:  git checkout -b feat/<name>" >&2
   exit 1
-fi
-
-if git diff --cached --quiet -- CHANGELOG.md 2>/dev/null; then
-  echo "warning: no CHANGELOG.md change staged on ${branch}." >&2
 fi
 exit 0
