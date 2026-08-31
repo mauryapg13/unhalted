@@ -28,6 +28,11 @@
   credentials from `.env` at run time and refuses to start on anything but a test key.
 
 ### Fixed
+- Store access is serialised behind a re-entrant lock, and `open_case` holds it across the whole
+  check-then-act. One sqlite3 connection was shared across FastAPI's threadpool with the
+  thread-safety check disabled, so concurrent webhooks could commit each other's half-written
+  rows — and even with the lock, two threads could both read "no such case" and race to insert
+  the same payment. The unique index on `signals.payment_id` is the cross-process backstop.
 - NPCI restricted execution windows corrected to both bands, `10:00-13:00` and `17:00-21:30` IST.
   The spec previously named only the first, which would have permitted an evening retry that NPCI
   forbids.
