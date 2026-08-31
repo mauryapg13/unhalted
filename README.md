@@ -143,6 +143,18 @@ uv sync --all-extras
 uv run pytest
 ```
 
+See a failed payment go through end to end — a forged webhook rejected, a real one accepted,
+a redelivery recognised, and the resulting case timeline:
+
+```bash
+./scripts/demo.sh
+```
+
+It posts to the same endpoints Razorpay posts to, with a real HMAC signature, and reads the case
+back through the same API anyone else would use. The NPCI window rule reads the real clock, so
+inside a restricted band (10:00-13:00 or 17:00-21:30 IST) you will watch the shell move the retry
+and log the violation.
+
 ```bash
 cp .env.example .env
 uv run uvicorn unhalted.ingest.webhooks:app --reload

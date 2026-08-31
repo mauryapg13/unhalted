@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `scripts/demo.sh` drives a failed payment through the running service end to end: a forged
+  webhook rejected, a real signed one accepted, a redelivery recognised, and the case timeline
+  printed. It posts to the same endpoints Razorpay posts to rather than taking a demo-only path.
 - A missing changelog entry now blocks rather than warns: a `commit-msg` hook locally, and a CI
   job on pull requests that `--no-verify` cannot bypass. Commits that genuinely need no entry
   say `[skip changelog]` in the message, in the open.

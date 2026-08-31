@@ -147,6 +147,11 @@ fire and cancel pending actions atomically.
 
 **Serves:** the 1:45 beat, which is the strongest moment in the video.
 
+**Also required:** retry backoff. A technical failure currently schedules its retry for the same
+instant it failed, which retries into the same outage and burns one of the three attempts NPCI
+allows. Backoff is a timing policy and belongs in the scheduler beside the window rules, applied
+before the window check so the result is still moved out of a restricted band. See issue #4.
+
 **Not included:** an admin surface for triggering merchant pause by hand. The rule lands; the
 button does not.
 
