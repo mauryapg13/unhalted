@@ -1,0 +1,858 @@
+{
+  "generated_at": "2026-08-31T17:23:41+00:00",
+  "generated_from": {
+    "commit": "7fd0dafa8e271bb6cc10644642cae32f4afdd9b4",
+    "committed_at": "2026-04-08T14:31:43Z",
+    "path": "errors/payments",
+    "repo": "razorpay/markdown-docs"
+  },
+  "reasons": {
+    "any": {
+      "amount_less_than_minimum_amount": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Amount in the payment request is less than the minimum amount. Transacting through some banks have fixed fees. If the payment amount is less than the fixed fee then this error shows up.",
+        "source": "list.md"
+      },
+      "authentication_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment failed as 3D secure, or OTP authentication failed. This could happen if the user cancels the payment on the authentication (OTP submit) screen or enters incorrect authentication details such as OTP.",
+        "source": "list.md"
+      },
+      "authorisation_declined_by_psp": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PSP app has rejected the authorisation request. This can happen when there is an issue/downtime with the PSP or there's an issue with the customer's VPA.",
+        "source": "list.md"
+      },
+      "bank_account_invalid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The bank account is not valid. The customer or bank could have closed the account.",
+        "source": "list.md"
+      },
+      "bank_account_validation_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The third party validation failed as the given bank account details were incorrect or could not be verified.",
+        "source": "list.md"
+      },
+      "bank_cutoff_in_progress": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Bank CBS cutoff is in progress. This is a periodic event at the bank's end.",
+        "source": "list.md"
+      },
+      "bank_not_available": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Bank is not available due to a downtime or a technical issue.",
+        "source": "list.md"
+      },
+      "bank_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The selected bank to complete the transaction is not enabled for your business.",
+        "source": "list.md"
+      },
+      "bank_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The issuing bank was facing technical problems at the moment the payment was attempted. This usually occurs when the Core Banking System encounters a technical error while processing the payment.",
+        "source": "list.md"
+      },
+      "beneficiary_account_does_not_exist": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "An issue with the beneficiary account which does not exist.",
+        "source": "list.md"
+      },
+      "beneficiary_account_dormant": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "An issue with the beneficiary account which is dormant.",
+        "source": "list.md"
+      },
+      "capture_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment capture has failed.",
+        "source": "list.md"
+      },
+      "card_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card has been declined.",
+        "source": "list.md"
+      },
+      "card_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card has expired.",
+        "source": "list.md"
+      },
+      "card_network_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card's network (Visa, Mastercard, etc.) is not enabled for the merchant.",
+        "source": "list.md"
+      },
+      "card_not_enrolled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card is not enrolled for this payment method.",
+        "source": "list.md"
+      },
+      "card_number_invalid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card number is invalid.",
+        "source": "list.md"
+      },
+      "card_type_invalid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The card type is invalid.",
+        "source": "list.md"
+      },
+      "collect_on_mcc_blocked": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI Collect is blocked for this MCC (Merchant Category Code).",
+        "source": "list.md"
+      },
+      "collect_request_pending": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "A collect request is already pending for this transaction.",
+        "source": "list.md"
+      },
+      "compliance_violation": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment violates compliance requirements.",
+        "source": "list.md"
+      },
+      "credit_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Credit processing has failed.",
+        "source": "list.md"
+      },
+      "credit_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's credit limit has been exceeded.",
+        "source": "list.md"
+      },
+      "credit_limit_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's credit limit has expired.",
+        "source": "list.md"
+      },
+      "credit_limit_inactive": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's credit limit is inactive.",
+        "source": "list.md"
+      },
+      "credit_limit_not_approved": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's credit limit is not approved.",
+        "source": "list.md"
+      },
+      "credit_not_permitted": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Credit transactions are not permitted for this customer.",
+        "source": "list.md"
+      },
+      "debit_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The debit transaction has been declined.",
+        "source": "list.md"
+      },
+      "debit_instrument_blocked": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer is using a blocked card to complete the payment. The card could have been blocked by the issuer or by customers themselves.",
+        "source": "list.md"
+      },
+      "debit_instrument_inactive": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The debit instrument is inactive.",
+        "source": "list.md"
+      },
+      "deemed_transaction": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The transaction is deemed and cannot be processed.",
+        "source": "list.md"
+      },
+      "duplicate_refund_id": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "A refund with this ID already exists.",
+        "source": "list.md"
+      },
+      "duplicate_request": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "A duplicate request has been submitted.",
+        "source": "list.md"
+      },
+      "duplicate_rrn_found": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "A duplicate RRN (Retrieval Reference Number) was found.",
+        "source": "list.md"
+      },
+      "emi_greater_than_max_amount": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The EMI amount is greater than the maximum allowed amount.",
+        "source": "list.md"
+      },
+      "emi_plan_unavailable": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The EMI plan is not available.",
+        "source": "list.md"
+      },
+      "funds_blocked_by_mandate": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Funds are blocked by an existing mandate.",
+        "source": "list.md"
+      },
+      "gateway_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Technical error occurred at the gateway.",
+        "source": "list.md"
+      },
+      "incorrect_atm_pin": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Incorrect ATM PIN entered.",
+        "source": "list.md"
+      },
+      "incorrect_card_details": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Incorrect card details entered.",
+        "source": "list.md"
+      },
+      "incorrect_card_expiry_date": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Incorrect card expiry date entered.",
+        "source": "list.md"
+      },
+      "incorrect_cardholder_name": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Incorrect cardholder name entered.",
+        "source": "list.md"
+      },
+      "incorrect_cvv": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has entered an incorrect CVV to complete the payment.",
+        "source": "list.md"
+      },
+      "incorrect_otp": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has entered an incorrect OTP to complete the payment.",
+        "source": "list.md"
+      },
+      "incorrect_pin": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Incorrect PIN entered.",
+        "source": "list.md"
+      },
+      "input_validation_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment failed due to wrong request or input sent in the payment request. This is also seen while creating a payment with incorrect parameter values on the Dashboard.",
+        "source": "list.md"
+      },
+      "insufficient_funds": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer does not have sufficient funds in the account to complete the payment.",
+        "source": "list.md"
+      },
+      "international_transaction_not_allowed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "International transactions are not allowed.",
+        "source": "list.md"
+      },
+      "invalid_amount": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The amount provided is invalid.",
+        "source": "list.md"
+      },
+      "invalid_currency": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The currency passed is not supported or is invalid.",
+        "source": "list.md"
+      },
+      "invalid_device": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The device used is invalid for this transaction.",
+        "source": "list.md"
+      },
+      "invalid_email": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The email address provided is invalid.",
+        "source": "list.md"
+      },
+      "invalid_mobile_number": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The mobile number provided is not valid.",
+        "source": "list.md"
+      },
+      "invalid_order_id": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Order ID required in the payment request is either missing or is invalid. Order ID is mandatory for every payment.",
+        "source": "list.md"
+      },
+      "invalid_request": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The request is invalid.",
+        "source": "list.md"
+      },
+      "invalid_response_from_gateway": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Invalid response received from the gateway.",
+        "source": "list.md"
+      },
+      "invalid_user_details": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Invalid user details provided.",
+        "source": "list.md"
+      },
+      "invalid_vpa": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has entered an incorrect VPA to complete the payment.",
+        "source": "list.md"
+      },
+      "issuer_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Technical error occurred at the card issuer.",
+        "source": "list.md"
+      },
+      "live_mode_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Live mode is not enabled for your business. This error generally arises when you use test mode keys to make a live payment.",
+        "source": "list.md"
+      },
+      "mandate_creation_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Mandate creation has been declined.",
+        "source": "list.md"
+      },
+      "mandate_creation_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Mandate creation has expired.",
+        "source": "list.md"
+      },
+      "mandate_creation_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Mandate creation has failed.",
+        "source": "list.md"
+      },
+      "mandate_creation_timeout": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Mandate creation has timed out.",
+        "source": "list.md"
+      },
+      "mcc_amount_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The amount limit for this MCC (Merchant Category Code) has been exceeded.",
+        "source": "list.md"
+      },
+      "merchant_not_activated": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The merchant account is not activated.",
+        "source": "list.md"
+      },
+      "mismatch_in_transaction_details": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "There is a mismatch in transaction details.",
+        "source": "list.md"
+      },
+      "mobile_number_invalid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The mobile number is invalid.",
+        "source": "list.md"
+      },
+      "order_already_paid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "There can only be one successful payment for each order ID. This error arises when you are trying to use an order ID where a payment is already completed.",
+        "source": "list.md"
+      },
+      "order_amount_mismatch": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "This error arises when the amount mentioned in the order request is different from the amount mentioned in the payment request.",
+        "source": "list.md"
+      },
+      "order_payment_method_mismatch": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "This error arises when the method mentioned in the order request is different from the method mentioned in the payment request.",
+        "source": "list.md"
+      },
+      "otp_attempts_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "OTP attempts have been exceeded.",
+        "source": "list.md"
+      },
+      "otp_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The OTP has expired.",
+        "source": "list.md"
+      },
+      "payment_amount_tampered": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment amount has been tampered.",
+        "source": "list.md"
+      },
+      "payment_cancelled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has explicitly cancelled the payment due to which the authentication failed to complete.",
+        "source": "list.md"
+      },
+      "payment_collect_request_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment collect request has expired.",
+        "source": "list.md"
+      },
+      "payment_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment has been declined.",
+        "source": "list.md"
+      },
+      "payment_declined_due_to_high_traffic": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment declined due to high traffic at the gateway.",
+        "source": "list.md"
+      },
+      "payment_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment processing failed due to error at bank or wallet gateway. No specific error code received from gateway in this case.",
+        "source": "list.md"
+      },
+      "payment_method_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI is not enabled however merchant has hit the UPI Payment request on API.",
+        "source": "list.md"
+      },
+      "payment_pending": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment is pending and has not been completed yet.",
+        "source": "list.md"
+      },
+      "payment_pending_approval": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment is currently pending approval by the concerned authority as part of the maker-checker flow.",
+        "source": "list.md"
+      },
+      "payment_risk_check_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment declined due to risk checks. Risk checks are performed by Razorpay, Gateway, and Issuer Bank. The source parameter would give additional clarity where the risk check failed.",
+        "source": "list.md"
+      },
+      "payment_session_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment session has expired.",
+        "source": "list.md"
+      },
+      "payment_timed_out": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer did not complete the transaction within the specified time. This error may also happen when no response is received from the gateway.",
+        "source": "list.md"
+      },
+      "pin_attempts_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PIN attempts have been exceeded.",
+        "source": "list.md"
+      },
+      "pin_not_set": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PIN is not set for the payment method.",
+        "source": "list.md"
+      },
+      "psp_app_not_available": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PSP app is not available. This can be because of a downtime with the PSP.",
+        "source": "list.md"
+      },
+      "psp_app_not_supported": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI App is not supported. This is a rare error used when a particular app is blacklisted.",
+        "source": "list.md"
+      },
+      "psp_not_available": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PSP is not available.",
+        "source": "list.md"
+      },
+      "psp_not_registered": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "PSP is not registered.",
+        "source": "list.md"
+      },
+      "record_not_found": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The requested record was not found.",
+        "source": "list.md"
+      },
+      "recurring_payment_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Recurring payments are not enabled.",
+        "source": "list.md"
+      },
+      "refund_limit_crossed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The refund limit has been crossed.",
+        "source": "list.md"
+      },
+      "reqauth_mandate_not_acknowledged": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Request authentication mandate is not acknowledged.",
+        "source": "list.md"
+      },
+      "request_timed_out": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The request has timed out.",
+        "source": "list.md"
+      },
+      "server_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Technical error at Razorpay's server. This usually occurs when there is some server issue at Razorpay's end.",
+        "source": "list.md"
+      },
+      "transaction_daily_count_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The daily transaction count has been exceeded.",
+        "source": "list.md"
+      },
+      "transaction_daily_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has exceeded the daily transaction limit set on the card. Some of the cards allow customers to set a limit or have a default limit set.",
+        "source": "list.md"
+      },
+      "transaction_frequency_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "NPCI has a transaction limit both on the amount and the frequency per day. Customer has exhausted the frequency limit.",
+        "source": "list.md"
+      },
+      "transaction_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customers have exceeded the credit or debit limit set on their cards. This error usually arises while doing high value transactions.",
+        "source": "list.md"
+      },
+      "transaction_on_vpa_restricted": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Transaction on this VPA has been temporarily / permanently blocked by the PSP.",
+        "source": "list.md"
+      },
+      "upi_app_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Technical error occurred at the customer's PSP due to which the payment failed.",
+        "source": "list.md"
+      },
+      "upi_autopay_not_supported_on_psp": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI Autopay is not supported on PSP.",
+        "source": "list.md"
+      },
+      "upi_collect_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI Collect flow is not enabled however merchant has hit the Collect payment request on API.",
+        "source": "list.md"
+      },
+      "upi_intent_not_enabled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "UPI Intent flow is not enabled however merchant has hit the Intent Payment request on API.",
+        "source": "list.md"
+      },
+      "user_not_eligible": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer failed the eligibility check and is not eligible for credit. This error may arise when the customer has a poor credit score or incomplete/insufficient documents.",
+        "source": "list.md"
+      },
+      "user_not_registered_for_netbanking": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's bank account is not registered for netbanking.",
+        "source": "list.md"
+      },
+      "verification_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Verification of the payment using the status check API has failed.",
+        "source": "list.md"
+      },
+      "vpa_resolution_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The UPI network failed to validate the VPA. This is a technical error when the resolution fails.",
+        "source": "list.md"
+      }
+    },
+    "card": {
+      "authentication_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment did not go through as the customer entered incorrect OTP/verification details or accidentally closed the browser/pressed the back button during the authentication stage of the transaction.",
+        "source": "cards.md"
+      },
+      "bank_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "There was a downtime on the customer's bank due to which the payment has failed.",
+        "source": "cards.md"
+      },
+      "card_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was declined by the customer's bank, resulting in the transaction being unsuccessful.",
+        "source": "cards.md"
+      },
+      "card_disabled_for_online_payments": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful as the card was not activated or enabled by the customer for online transactions.",
+        "source": "cards.md"
+      },
+      "card_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment could not be completed because the customer's card is expired.",
+        "source": "cards.md"
+      },
+      "card_not_enrolled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful as the card was not activated or enabled by the customer for online transactions.",
+        "source": "cards.md"
+      },
+      "debit_instrument_blocked": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment could not be processed due to the card being blocked, either by the customer or their bank.",
+        "source": "cards.md"
+      },
+      "debit_instrument_inactive": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful as the card was not activated or enabled by the customer for online transactions.",
+        "source": "cards.md"
+      },
+      "gateway_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "There was a downtime on our partner bank due to which the payment has failed.",
+        "source": "cards.md"
+      },
+      "incorrect_cvv": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful as the customer entered an incorrect CVV during the payment process.",
+        "source": "cards.md"
+      },
+      "insufficient_funds": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment did not go through because the customer's bank account did not have enough funds to complete the transaction.",
+        "source": "cards.md"
+      },
+      "payment_cancelled": {
+        "cause_names": [
+          "Customer Cancelled Transaction",
+          "Bank Downtime"
+        ],
+        "causes": 2,
+        "description": "The payment could not be completed because the customer cancelled the transaction or pressed the back button during the payment processing period.",
+        "source": "cards.md"
+      },
+      "payment_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was declined by the customer's bank, resulting in the transaction being unsuccessful.",
+        "source": "cards.md"
+      },
+      "payment_risk_check_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The transaction was unsuccessful as the customer's bank declined the payment, citing it as fraudulent.",
+        "source": "cards.md"
+      },
+      "payment_timed_out": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment could not be completed as the customer exceeded the time limit for payment processing. This time limit is typically 10 minutes unless otherwise specified.",
+        "source": "cards.md"
+      },
+      "transaction_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment did not go through because the customer has already reached the maximum transaction limit on their card for the day.",
+        "source": "cards.md"
+      }
+    },
+    "upi": {
+      "bank_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment failed due to a downtime on the UPI provider.",
+        "source": "upi.md"
+      },
+      "credit_failed": {
+        "cause_names": [
+          "Customer Bank Account Mismatch",
+          "Partner Bank Downtime"
+        ],
+        "causes": 2,
+        "description": "The payment was unsuccessful because the customer selected a different bank account that was not used during the time of registration with your business.",
+        "source": "upi.md"
+      },
+      "gateway_technical_error": {
+        "cause_names": [
+          "Partner Bank Technical Issues",
+          "Partner Bank Downtime"
+        ],
+        "causes": 2,
+        "description": "The payment could not be completed due to technical issues from the partner bank.",
+        "source": "upi.md"
+      },
+      "insufficient_funds": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment did not go through because the customer's bank account did not have enough funds to complete the transaction.",
+        "source": "upi.md"
+      },
+      "invalid_vpa": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful due to the customer not being a valid user on the UPI App.",
+        "source": "upi.md"
+      },
+      "payment_cancelled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment could not be completed because the customer cancelled the transaction or pressed the back button during the payment processing period.",
+        "source": "upi.md"
+      },
+      "payment_collect_request_expired": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment could not be completed as the customer exceeded the time limit for payment processing. This time limit is typically 10 minutes unless otherwise specified.",
+        "source": "upi.md"
+      },
+      "payment_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment did not go through because the funds could not be debited from the customer's bank account.",
+        "source": "upi.md"
+      },
+      "payment_timed_out": {
+        "cause_names": [
+          "Customer Exceeded Payment Time Limit",
+          "Partner Bank Downtime"
+        ],
+        "causes": 2,
+        "description": "The payment could not be completed as the customer exceeded the time limit for payment processing. This time limit is typically 10 minutes unless otherwise specified.",
+        "source": "upi.md"
+      },
+      "vpa_resolution_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The payment was unsuccessful due to a failure to process the transaction using the customer's UPI ID.",
+        "source": "upi.md"
+      }
+    }
+  },
+  "summary": {
+    "ambiguous": {
+      "card:payment_cancelled": 2,
+      "upi:credit_failed": 2,
+      "upi:gateway_technical_error": 2,
+      "upi:payment_timed_out": 2
+    },
+    "reasons_by_method": {
+      "any": 110,
+      "card": 16,
+      "upi": 10
+    }
+  }
+}

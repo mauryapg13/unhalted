@@ -42,3 +42,17 @@ jobs:
           echo "::error::This pull request changes code but adds no CHANGELOG.md entry."
           echo "Add one under ## [Unreleased], or put [skip changelog] in a commit message."
           exit 1
+
+  taxonomy-drift:
+    # The diagnosis taxonomy's facts are generated from Razorpay's error
+    # references and pinned to a commit of their docs. When they document a new
+    # root cause, confidence for that reason should fall and more cases should
+    # route to a human — but only if we notice. This is how we notice.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.13
+      - run: uv sync --all-extras
+      - name: Razorpay's error documentation has not moved
+        run: uv run python scripts/build_taxonomy.py --check
