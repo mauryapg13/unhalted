@@ -114,9 +114,13 @@ timeline is retrievable by case id.
 ### C3 — Diagnosis runs on the real taxonomy
 Failures are classified from Razorpay's actual error fields, not invented codes.
 
-**Done when:** the rules table maps `(error_reason, error_source, error_step)` to a class for every
-documented Razorpay card and UPI error reason, unknown strings are forced to `unknown` and held, and
-each diagnosis records whether it came from the table or the model.
+**Done when:** the rules table maps `(method, error_reason, error_source, error_step)` to a class
+for every documented Razorpay card and UPI error reason, unknown strings are forced to `unknown`
+and held, and each diagnosis records whether it came from the table or the model.
+
+**Method is in the key** because ambiguity is method-specific: Razorpay documents one root cause for
+`payment_timed_out` on cards and two on UPI, so the same reason is determined in one and undetermined
+in the other.
 
 **Serves:** the 1:00 beat — "most failures never reach the model".
 
@@ -296,6 +300,11 @@ Recorded as they are established, so no one re-litigates them later.
 | Emandate limit | ₹1,00,00,000 |
 | Ceiling rule | three limits, two different consequences. The shell must know the method before deciding |
 | Customer bank balance | not obtainable from any API |
+| Documented error reasons | 110 in `errors/payments/list.md`; 16 card and 10 UPI carry root-cause detail |
+| Documented ambiguities | exactly 4 of 26 card/UPI reasons have more than one root cause: `card:payment_cancelled`, `upi:credit_failed`, `upi:gateway_technical_error`, `upi:payment_timed_out`. **85% of documented reasons are deterministic by Razorpay's own reference** |
+| Ambiguity is method-specific | `payment_timed_out` has 1 documented cause on cards and 2 on UPI |
+| Confidence | derived, not chosen: `(1/n documented causes, lifted when error_source selects one) x (DIRECT 1.0 or INFERRED 0.8)`. Generated facts pinned to a Razorpay docs commit |
+| Deliberately held | `payment_risk_check_failed` — the bank called it fraudulent. No recovery class fits; re-authorisation would be actively wrong |
 | AI core endpoint | OpenRouter, OpenAI-compatible, model `z-ai/glm-5.3-flash` |
 | Hinglish extraction quality | verified 6/6 on the spec's own examples, including the three-intent case and the frustration-not-cancellation trap |
 | Measured reply-parse cost | ~₹0.01 per reply (\$0.000719 for 6 parses). OpenRouter returns exact `usage.cost` per call, so model spend is measured, not estimated |

@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Added
+- The diagnosis taxonomy's facts are now generated from Razorpay's error references and pinned to
+  a commit of `razorpay/markdown-docs`, so `taxonomy_version` identifies the exact documentation
+  a classification came from. `scripts/build_taxonomy.py` builds it and `--check` fails when their
+  docs have moved; a CI job runs that check.
+- Confidence is derived rather than chosen: the documented root-cause count caps it at `1/n`, a
+  concrete `error_source` lifts the cap by selecting one cause, and a second factor records whether
+  Razorpay's own description states the class or we inferred it. The audit reasoning names the
+  causes it weighed, so it can be checked against their documentation.
+- `method` joins the taxonomy key. Ambiguity is method-specific — `payment_timed_out` has one
+  documented cause on cards and two on UPI — so the same reason yields 0.8 on a card and 0.4 on
+  UPI, and only the second falls below the threshold for autonomous action.
+- All 26 documented card and UPI error reasons are accounted for: 25 mapped to a recovery class,
+  and `payment_risk_check_failed` deliberately held, because a bank calling a payment fraudulent
+  has no appropriate automated response.
 - Live API tests (`pytest -m live`) that hit the real Razorpay test-mode API and assert the field
   names and shapes the pipeline depends on. Excluded by default so CI needs no credentials; they
   refuse to run against anything but a test key. They caught, on their first run, that the
