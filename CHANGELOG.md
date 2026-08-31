@@ -12,6 +12,20 @@
   scheduler, and the control loop that takes one failure from signal to scheduled action.
 - Workflow enforcement: a git pre-commit hook refusing commits on `main`, a Claude Code
   `PreToolUse` guard, and `CLAUDE.md` stating the working agreement.
+- Webhook ingest: `POST /webhooks/razorpay` verifying the `X-Razorpay-Signature` HMAC over the
+  raw request body, and `GET /cases/{id}` returning a case timeline. A `payment.failed` event
+  now runs end to end — case opened, diagnosed, retry scheduled inside a permitted NPCI window,
+  every decision audited.
+- Idempotent delivery, keyed on the `x-razorpay-event-id` header Razorpay prescribes. Redelivery
+  is documented as expected behaviour, and a second case for one failure would count the same
+  rupees twice.
+- Two documented failure reasons added to the taxonomy: `payment_failed` from `bank` and from
+  `issuer` at authorisation classify as recoverable-technical — a bank-side failure implies no
+  customer action, so it is worth a silent retry and not worth a message.
+- Test fixtures sourced from Razorpay's published webhook documentation, with provenance
+  recorded. Real captures replace them at C4.
+- Razorpay's official MCP server wired for development use, launched through a script that reads
+  credentials from `.env` at run time and refuses to start on anything but a test key.
 
 ### Fixed
 - NPCI restricted execution windows corrected to both bands, `10:00-13:00` and `17:00-21:30` IST.

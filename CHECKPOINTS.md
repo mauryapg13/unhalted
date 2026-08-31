@@ -277,7 +277,8 @@ Recorded as they are established, so no one re-litigates them later.
 | Primary integration | Recurring Payments with mandate tokens, so the shell owns debit timing |
 | Unavailable transports | UPI Autopay and Subscriptions API. Their **rules** are implemented and tested; only the adapters are absent. Build the seam, never the stub |
 | Holdout baseline | Razorpay's documented T+1/T+2/T+3 retry model, not an invented control |
-| `initiate_payment` + `submit_otp` can produce API-only failures | not yet checked |
+| API-only path to a failed payment | **none on this account.** S2S card creation returns 403, S2S UPI returns 404. A failed payment requires the hosted checkout |
+| Driving the hosted checkout by automation | unreliable — cross-origin iframe accepts synthetic keystrokes once, then ignores edits. Capture is human-in-the-loop |
 | NPCI restricted bands | 10:00–13:00 and 17:00–21:30 IST |
 | Charge initiates after pre-debit alert | 25 hours |
 | UPI Autopay limits | mandate creation up to ₹1,00,000; frictionless debit ₹15,000, or ₹1,00,000 for BFSI. Above that requires **additional customer authorisation**, not failure |

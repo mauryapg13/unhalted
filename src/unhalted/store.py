@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS audit (
     payload       TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS processed_events (
+    event_id      TEXT PRIMARY KEY,
+    at            TEXT NOT NULL,
+    case_id       TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_signals_case ON signals(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_case   ON audit(case_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signals_payment ON signals(payment_id);
@@ -196,6 +202,28 @@ class Store:
             "SELECT payload FROM signals WHERE case_id = ? ORDER BY id ASC", (case_id,)
         ).fetchall()
         return [FailureSignal.model_validate_json(r["payload"]) for r in rows]
+
+    # -- idempotency ---------------------------------------------------------
+
+    def event_seen(self, event_id: str) -> str | None:
+        """Return the case a previously processed event produced, if any.
+
+        Razorpay redelivers webhooks, and prescribes `x-razorpay-event-id` —
+        unique per event — as the way to recognise a repeat. Without this a
+        redelivery would open a second case and the same rupees would be
+        counted twice in recovery figures.
+        """
+        row = self._conn.execute(
+            "SELECT case_id FROM processed_events WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        return row["case_id"] if row else None
+
+    def mark_event(self, event_id: str, case_id: str, at: datetime) -> None:
+        with self._tx() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO processed_events (event_id, at, case_id) VALUES (?,?,?)",
+                (event_id, at.isoformat(), case_id),
+            )
 
     def all_cases(self) -> list[Case]:
         rows = self._conn.execute("SELECT * FROM cases ORDER BY opened_at DESC").fetchall()
