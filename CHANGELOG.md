@@ -28,6 +28,10 @@
   credentials from `.env` at run time and refuses to start on anything but a test key.
 
 ### Fixed
+- The diagnosis table's confidence values are documented as provisional policy floors rather
+  than measured estimates, at the point of definition. A deterministic lookup does not have
+  confidence the way a model does; the numbers encode how much autonomy a mapping has earned.
+  C8 replaces them with observed rates.
 - Store access is serialised behind a re-entrant lock, and `open_case` holds it across the whole
   check-then-act. One sqlite3 connection was shared across FastAPI's threadpool with the
   thread-safety check disabled, so concurrent webhooks could commit each other's half-written
