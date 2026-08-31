@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- A missing changelog entry now blocks rather than warns: a `commit-msg` hook locally, and a CI
+  job on pull requests that `--no-verify` cannot bypass. Commits that genuinely need no entry
+  say `[skip changelog]` in the message, in the open.
 - Gherkin specification split into executable feature files under `tests/features/`, wired to
   `pytest-bdd` and run in CI.
 - Project skeleton: packaging, CI workflow, README, licence, breakage log.

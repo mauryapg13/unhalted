@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Refuses a commit that carries no CHANGELOG.md change.
+#
+# The changelog is a submission deliverable, not housekeeping. This blocks
+# rather than warns, because a warning is exactly what failed before.
+#
+# Some commits legitimately carry no entry — a test-only fix, tooling, the hook
+# setup itself. Those say so in the message, in the open, rather than slipping
+# past a warning nobody read.
+#
+# Runs as commit-msg because only that hook receives the message file.
+
+msg_file="$1"
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+if ! git diff --cached --quiet -- CHANGELOG.md 2>/dev/null; then
+  exit 0
+fi
+
+if [ -f "$msg_file" ] && grep -qF "[skip changelog]" "$msg_file"; then
+  exit 0
+fi
+
+echo "refused: no CHANGELOG.md change staged on ${branch}." >&2
+echo "  /wr writes the entry. Use it." >&2
+echo "  If this commit genuinely needs none, put [skip changelog] in the message." >&2
+exit 1

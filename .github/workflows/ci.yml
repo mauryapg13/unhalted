@@ -17,3 +17,28 @@ jobs:
         run: uv run ruff check .
       - name: Specification suite
         run: uv run pytest
+
+  changelog:
+    # The local hook can be bypassed with --no-verify. This cannot.
+    # A pull request must carry a changelog entry, or say in a commit message
+    # why it does not.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a changelog entry
+        run: |
+          base="origin/${{ github.base_ref }}"
+          if ! git diff --quiet "$base"...HEAD -- CHANGELOG.md; then
+            echo "CHANGELOG.md updated."
+            exit 0
+          fi
+          if git log "$base"..HEAD --format=%B | grep -qF "[skip changelog]"; then
+            echo "No changelog entry, but a commit declares [skip changelog]."
+            exit 0
+          fi
+          echo "::error::This pull request changes code but adds no CHANGELOG.md entry."
+          echo "Add one under ## [Unreleased], or put [skip changelog] in a commit message."
+          exit 1
