@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Live API tests (`pytest -m live`) that hit the real Razorpay test-mode API and assert the field
+  names and shapes the pipeline depends on. Excluded by default so CI needs no credentials; they
+  refuse to run against anything but a test key. They caught, on their first run, that the
+  Subscriptions API had become entitled after being 401 all morning.
 - `scripts/demo.sh` drives a failed payment through the running service end to end: a forged
   webhook rejected, a real signed one accepted, a redelivery recognised, and the case timeline
   printed. It posts to the same endpoints Razorpay posts to rather than taking a demo-only path.
