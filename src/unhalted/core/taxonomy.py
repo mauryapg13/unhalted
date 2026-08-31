@@ -43,6 +43,20 @@ TABLE: dict[tuple[str, str, str], Rule] = {
         0.97,
         "card-flow spelling of insufficient balance",
     ),
+    # A bank- or issuer-side failure at authorisation is not the customer's
+    # doing. It is worth a silent retry and is not worth a message — nudging
+    # someone about their bank's downtime is noise about a problem that is not
+    # theirs.
+    ("payment_failed", "bank", ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        0.90,
+        "bank-side failure at authorisation; no customer action implied",
+    ),
+    ("payment_failed", "issuer", ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        0.90,
+        "issuer-side failure at authorisation; no customer action implied",
+    ),
     ("payment_declined", ANY, ANY): Rule(
         DiagnosisClass.RECOVERABLE_BALANCE,
         0.75,

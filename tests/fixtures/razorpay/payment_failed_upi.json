@@ -1,0 +1,51 @@
+{
+  "entity": "event",
+  "account_id": "acc_BFQ7uQEaa7j2z7",
+  "event": "payment.failed",
+  "contains": [
+    "payment"
+  ],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_DESyzxuld02Zul",
+        "entity": "payment",
+        "amount": 100,
+        "currency": "INR",
+        "status": "failed",
+        "order_id": "order_DESxiijbl9xjDB",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "refund_status": null,
+        "captured": false,
+        "description": null,
+        "card_id": null,
+        "bank": null,
+        "wallet": null,
+        "vpa": "gaurav.kumar@upi",
+        "email": "gaurav.kumar@example.com",
+        "contact": "+919876543210",
+        "notes": [],
+        "fee": null,
+        "tax": null,
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "Payment failed",
+        "error_source": "issuer",
+        "error_step": "payment_authorization",
+        "error_reason": "payment_failed",
+        "acquirer_data": {
+          "rrn": null
+        },
+        "created_at": 1567675356,
+        "upi": {
+          "payer_account_type": "credit_card",
+          "vpa": "gaurav.kumar@upi",
+          "flow": "intent"
+        }
+      }
+    }
+  },
+  "created_at": 1567675356
+}

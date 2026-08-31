@@ -1,0 +1,46 @@
+{
+  "entity": "event",
+  "account_id": "acc_E6ztBHzyaVFgBV",
+  "event": "payment.failed",
+  "contains": [
+    "payment"
+  ],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_Epiu9wz2hXBGsJ",
+        "entity": "payment",
+        "amount": 10000,
+        "currency": "INR",
+        "status": "failed",
+        "order_id": "order_Epitst92Bya4gC",
+        "invoice_id": "inv_EpitssSmeINDJU",
+        "international": false,
+        "method": "wallet",
+        "amount_refunded": 0,
+        "refund_status": null,
+        "captured": false,
+        "description": "#inv_EpitssSmeINDJU",
+        "card_id": null,
+        "bank": null,
+        "wallet": "payzapp",
+        "vpa": null,
+        "email": "gaurav.kumar@example.com",
+        "contact": "+919876543210",
+        "notes": [],
+        "fee": null,
+        "tax": null,
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_description": "Payment failed",
+        "error_source": "issuer",
+        "error_step": "payment_authorization",
+        "error_reason": "payment_failed",
+        "acquirer_data": {
+          "transaction_id": null
+        },
+        "created_at": 1589347098
+      }
+    }
+  },
+  "created_at": 1589347099
+}
