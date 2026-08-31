@@ -10,6 +10,26 @@ the table is keyed on all three rather than on the reason alone.
 Scope note: this table is deliberately minimal. It covers the classes the
 walking skeleton exercises. It is widened at C3, against the full documented
 Razorpay card and UPI error lists.
+
+On the confidence numbers
+-------------------------
+They are **provisional policy floors, not measured estimates**, and they are
+written down here so nobody mistakes them for evidence.
+
+A deterministic lookup does not have confidence the way a model does. If
+`insufficient_funds` maps to `recoverable-balance`, that mapping is either right
+or this table is wrong — it is not 97% likely. What each number actually encodes
+is a decision about how much autonomy that mapping has earned, expressed on the
+confidence scale so it passes through the same authority banding as a model's
+output (see `Diagnosis.authority`).
+
+Until they are measured, they say: this mapping is trusted enough to act on
+without a human, or it is not.
+
+At C8 each is replaced by the observed rate at which that mapping led to the
+correct recovery path across the batch. At that point they become evidence. They
+are not evidence now, and no number derived from them should be reported as if
+they were.
 """
 
 from __future__ import annotations
@@ -32,6 +52,7 @@ class Rule(NamedTuple):
 
 #: (error_reason, error_source, error_step) -> Rule.
 #: More specific keys are tried before wildcards.
+#: Confidences here are provisional policy floors — see the module docstring.
 TABLE: dict[tuple[str, str, str], Rule] = {
     ("insufficient_funds", ANY, ANY): Rule(
         DiagnosisClass.RECOVERABLE_BALANCE,

@@ -189,6 +189,10 @@ reported in a separate line that is not counted as recovery.
 
 **Serves:** the 3:05 beat, and the track's stated bar.
 
+**Also done at C8:** the provisional confidence values in `core/taxonomy.py` are replaced by
+the observed rate at which each mapping led to the correct recovery path. Until then they are
+policy floors, not evidence, and nothing derived from them is reported as measured.
+
 **Not included:** statistical significance testing. Multi-month simulation.
 
 ---
