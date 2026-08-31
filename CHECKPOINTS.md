@@ -277,13 +277,14 @@ Recorded as they are established, so no one re-litigates them later.
 | Fact | Status |
 |---|---|
 | Subscriptions dashboard | usable in test mode; Card and eMandate enabled, **UPI cannot be enabled** (NPCI-regulated, needs account activation) |
-| Subscriptions and Plans **API** access | **401 on GET and POST — product not entitled on this account.** Bare `{"error":"Unauthorized"}`, not Razorpay's structured error, so it is rejected before reaching the service. Orders returns 200 in the same session. Not fixable in code |
+| Subscriptions and Plans **API** access | **Now working.** Returned 401 on GET and POST all morning on 2026-08-31, including with a regenerated key; began answering later the same day after Card and eMandate were enabled in the dashboard's Subscriptions settings, which appears to provision the API asynchronously. Plans, subscriptions and hosted subscription links all create successfully. Caught by a live API test, not by assumption |
 | Orders, Customers, Payments, Tokens, Invoices APIs | all 200 in test mode |
 | Razorpay's own retry model (UPI and cards) | T+1, T+2, T+3, then `halted` — automatic, no merchant action |
 | Debit timing under Subscriptions | owned by Razorpay; merchant cannot choose it |
 | Manual charge of a domestic card under Subscriptions | not supported |
 | Payment-method change from UPI | to card only; not UPI or emandate |
-| Primary integration | Recurring Payments with mandate tokens, so the shell owns debit timing |
+| Primary integration | Recurring Payments with mandate tokens, so the shell owns debit timing. This decision originally had two reasons — the Subscriptions API being unavailable, and Razorpay owning the debit schedule under Subscriptions. The first no longer holds; the second always was the stronger one and still stands |
+| Subscriptions as a second signal | `subscription.pending` and `subscription.halted` are now obtainable. The ingest layer already has the seam. Not wired yet |
 | Unavailable transports | UPI Autopay and Subscriptions API. Their **rules** are implemented and tested; only the adapters are absent. Build the seam, never the stub |
 | Holdout baseline | Razorpay's documented T+1/T+2/T+3 retry model, not an invented control |
 | API-only path to a failed payment | **none on this account.** S2S card creation returns 403, S2S UPI returns 404. A failed payment requires the hosted checkout |

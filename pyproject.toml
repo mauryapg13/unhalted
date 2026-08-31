@@ -25,7 +25,10 @@ packages = ["src/unhalted"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 bdd_features_base_dir = "tests/features"
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers -m 'not live'"
+markers = [
+    "live: hits the real Razorpay API. Requires test credentials in .env. Run with -m live.",
+]
 
 [tool.ruff]
 line-length = 100
