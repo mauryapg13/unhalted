@@ -96,114 +96,140 @@ def documented_causes(method: str | None, reason: str) -> tuple[int, list[str]]:
 #: appears only where it resolves a documented ambiguity.
 TABLE: dict[tuple[str, str, str, str], Rule] = {
     (ANY, "insufficient_funds", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_BALANCE, DIRECT,
+        DiagnosisClass.RECOVERABLE_BALANCE,
+        DIRECT,
         "Razorpay: the account did not have enough funds",
     ),
     (ANY, "insufficient_fund", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_BALANCE, DIRECT,
+        DiagnosisClass.RECOVERABLE_BALANCE,
+        DIRECT,
         "card-flow spelling of insufficient balance",
     ),
     (ANY, "payment_declined", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_BALANCE, INFERRED,
+        DiagnosisClass.RECOVERABLE_BALANCE,
+        INFERRED,
         "Razorpay: funds could not be debited; balance is the likeliest cause but not stated",
     ),
     (ANY, "bank_technical_error", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, DIRECT,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
         "Razorpay: downtime at the provider",
     ),
     # payment_failed carries no cause detail of its own; source is what says
     # whose problem it was.
     (ANY, "payment_failed", "bank", ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, DIRECT,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
         "bank-side failure at authorisation; no customer action implied",
     ),
     (ANY, "payment_failed", "issuer", ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, DIRECT,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
         "issuer-side failure at authorisation; no customer action implied",
     ),
     # The four documented ambiguities. A concrete source resolves each of them;
     # without one, the reason alone cannot choose, and the cap holds.
     (ANY, "payment_timed_out", "customer", ANY): Rule(
-        DiagnosisClass.NOTIFICATION_GAP, DIRECT,
+        DiagnosisClass.NOTIFICATION_GAP,
+        DIRECT,
         "Razorpay: the customer exceeded the payment time limit",
     ),
     (ANY, "payment_timed_out", "bank", ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, DIRECT,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
         "Razorpay: partner bank downtime, not the customer's doing",
     ),
     (ANY, "payment_timed_out", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, INFERRED,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
         "timed out with no source given; treated as technical pending verification",
     ),
     (ANY, "gateway_technical_error", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, DIRECT,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
         "Razorpay: partner bank technical issue or downtime; either way not the customer",
     ),
     (ANY, "credit_failed", "customer", ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: a bank account other than the registered one was used",
     ),
     (ANY, "credit_failed", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, INFERRED,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
         "credit failed with no source given; partner bank downtime is the other documented cause",
     ),
     (ANY, "payment_cancelled", ANY, ANY): Rule(
-        DiagnosisClass.CUSTOMER_INTENT_REVOKED, INFERRED,
+        DiagnosisClass.CUSTOMER_INTENT_REVOKED,
+        INFERRED,
         "Razorpay: the customer cancelled, though bank downtime is also documented",
     ),
     (ANY, "invalid_vpa", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the customer is not a valid user on the UPI app",
     ),
     (ANY, "transaction_on_vpa_restricted", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the VPA is blocked",
     ),
     (ANY, "card_expired", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the card has expired; a retry cannot fix it",
     ),
     (ANY, "debit_instrument_blocked", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the card is blocked by the issuer or the customer",
     ),
     (ANY, "card_disabled_for_online_payments", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the card is disabled for online payments",
     ),
     (ANY, "authentication_failed", ANY, ANY): Rule(
-        DiagnosisClass.NOTIFICATION_GAP, INFERRED,
+        DiagnosisClass.NOTIFICATION_GAP,
+        INFERRED,
         "Razorpay: OTP or 3DS failed; the customer was present and did not complete it",
     ),
     (ANY, "card_not_enrolled", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the card is not enabled for online transactions; a retry cannot fix it",
     ),
     (ANY, "debit_instrument_inactive", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the card is not activated for online transactions",
     ),
     (ANY, "vpa_resolution_failed", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, DIRECT,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
         "Razorpay: the customer's UPI ID could not be resolved",
     ),
     (ANY, "incorrect_cvv", ANY, ANY): Rule(
-        DiagnosisClass.MANDATE_STATE_BROKEN, INFERRED,
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        INFERRED,
         "Razorpay: an incorrect CVV was entered; the instrument needs re-authorisation, "
         "and no CVV is entered on a stored-token debit",
     ),
     (ANY, "transaction_limit_exceeded", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_BALANCE, INFERRED,
+        DiagnosisClass.RECOVERABLE_BALANCE,
+        INFERRED,
         "Razorpay: the card's daily transaction limit is reached; not a balance failure, "
         "but the same recovery path — wait and retry",
     ),
     (ANY, "card_declined", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, INFERRED,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
         "Razorpay: declined by the customer's bank, without a stated cause; "
         "worth one retry, and nothing more can be read into it",
     ),
     (ANY, "payment_failed", ANY, ANY): Rule(
-        DiagnosisClass.RECOVERABLE_TECHNICAL, INFERRED,
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
         "Razorpay: declined by the customer's bank, without a stated cause",
     ),
     # Deliberately held, not unrecognised. Razorpay says the bank declined this
@@ -213,19 +239,22 @@ TABLE: dict[tuple[str, str, str, str], Rule] = {
     # UNKNOWN is what routes there. The rationale below is what distinguishes
     # this from a reason we simply do not recognise.
     (ANY, "payment_risk_check_failed", ANY, ANY): Rule(
-        DiagnosisClass.UNKNOWN, 0.0,
+        DiagnosisClass.UNKNOWN,
+        0.0,
         "Razorpay: the bank declined this as fraudulent. Deliberately held for a human "
         "rather than classified — no automated recovery path is appropriate",
     ),
     (ANY, "payment_collect_request_expired", ANY, ANY): Rule(
-        DiagnosisClass.NOTIFICATION_GAP, DIRECT,
+        DiagnosisClass.NOTIFICATION_GAP,
+        DIRECT,
         "Razorpay: the customer did not act within the collect window",
     ),
 }
 
 #: Applied when nothing matches. Never guesses.
 UNMATCHED = Rule(
-    DiagnosisClass.UNKNOWN, 0.0,
+    DiagnosisClass.UNKNOWN,
+    0.0,
     "no taxonomy entry for this combination of method, reason, source and step",
 )
 
