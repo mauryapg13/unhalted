@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- The confidence thresholds in `Diagnosis.authority` now say at the point of definition that they
+  are policy rather than measurement. `0.90` and `0.70` came from the specification and nobody
+  measured them; C8 makes them answerable. See issue #7.
+
 - C6 (reply understanding) joins C5 and the C8 holdout in the never-cut set. With 85% of documented
   failures resolving deterministically, reply parsing is where a model is irreplaceable, so cutting
   it would remove the answer to what the AI does. The diagnosis model seam is recorded against C6,
