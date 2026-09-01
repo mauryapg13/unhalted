@@ -86,3 +86,36 @@ premise that a probabilistic component cannot be trusted to follow rules, so the
 enforced in deterministic code it cannot route around. I spent an afternoon being the
 probabilistic component that drifted from its own rules. The fix was not a better intention. It
 was a shell.
+
+---
+
+### The service never read its own configuration
+**Date:** 2026-09-01
+
+**What happened:** With the webhook registered and the tunnel live, the first three deliveries
+from Razorpay were all refused: `503 — RAZORPAY_WEBHOOK_SECRET is not set`. The secret was in
+`.env`, where it had been written twenty minutes earlier.
+
+**Why:** Nothing loaded `.env` into the application. `scripts/preflight.py` parsed the file
+itself, and `scripts/demo.sh` passed the variables inline on the command line, so every path that
+had ever been exercised supplied the environment by some other means. The service, which is the
+only thing that needs it in production, had no way to read it at all. It would have refused every
+webhook Razorpay ever sent.
+
+**What changed:** `src/unhalted/config.py` loads `.env` at import, never overwriting a real
+environment variable, so deployment without a `.env` behaves correctly. The webhook endpoint and
+the store read through it.
+
+Two things worth keeping:
+
+1. **The failure mode was right even though the configuration was wrong.** The endpoint returns
+   503 and refuses rather than accepting unsigned webhooks — an endpoint that accepts those is one
+   anyone can open cases on. It failed closed, loudly, with the reason in the log.
+2. **Razorpay redelivered.** The payment whose webhook was refused arrived again once the fix was
+   in, and opened its case normally. Their retry behaviour recovered the event with no
+   intervention — which is exactly why the endpoint acknowledges events it does not handle rather
+   than rejecting them.
+
+**The lesson:** every path that exercised the configuration did so in a way production never
+would. Tests passed, the demo passed, preflight passed — and the one caller that mattered had
+never been tried. It took a real webhook from a real Razorpay to find it.

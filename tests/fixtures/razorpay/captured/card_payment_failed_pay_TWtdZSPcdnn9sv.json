@@ -1,0 +1,54 @@
+{
+  "captured_at": "2026-09-01T20:05:55+00:00",
+  "captured_from": "razorpay test mode, hosted checkout with an error-scenario card",
+  "payment": {
+    "acquirer_data": {
+      "auth_code": null
+    },
+    "amount": 49900,
+    "amount_captured": null,
+    "amount_refunded": 0,
+    "bank": null,
+    "captured": false,
+    "card": {
+      "emi": false,
+      "entity": "card",
+      "id": "card_TWtdZh1N4bty52",
+      "international": false,
+      "issuer": "DCBL",
+      "last4": "0001",
+      "name": "",
+      "network": "Visa",
+      "sub_type": "consumer",
+      "token_iin": "410028000",
+      "type": "debit"
+    },
+    "card_id": "card_TWtdZh1N4bty52",
+    "contact": "+918277229445",
+    "created_at": 1788292730,
+    "currency": "INR",
+    "description": "#TWsyehG2WLaWBF",
+    "email": "void@razorpay.com",
+    "entity": "payment",
+    "error_code": "BAD_REQUEST_ERROR",
+    "error_description": "Payment failed",
+    "error_reason": "payment_failed",
+    "error_source": "gateway",
+    "error_step": "payment_authorization",
+    "fee": null,
+    "id": "pay_TWtdZSPcdnn9sv",
+    "international": false,
+    "invoice_id": null,
+    "method": "card",
+    "notes": {
+      "expected_error_reason": "insufficient_fund",
+      "test_card": "4100 2800 0008 0001"
+    },
+    "order_id": "order_TWtcssiOcx190a",
+    "refund_status": null,
+    "status": "failed",
+    "tax": null,
+    "vpa": null,
+    "wallet": null
+  }
+}

@@ -18,12 +18,12 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
+from unhalted import config
 from unhalted.agent import handle_failure
 from unhalted.ingest.normalize import UnsupportedEvent, from_payment_failed
 from unhalted.models import AuditRecord, Case
@@ -63,7 +63,7 @@ def health() -> dict[str, str]:
 async def razorpay_webhook(request: Request) -> dict[str, Any]:
     raw = await request.body()
 
-    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+    secret = config.webhook_secret()
     if not secret:
         # Failing closed: an endpoint that accepts unsigned webhooks is an
         # endpoint anyone can open cases on.
