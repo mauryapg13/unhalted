@@ -16,7 +16,6 @@ low volume. It is not a reason to reach for a server database.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import threading
 import uuid
@@ -25,6 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from unhalted import config
 from unhalted.models import AuditRecord, Case, CaseState, Diagnosis, FailureSignal
 
 SCHEMA = """
@@ -75,7 +75,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_signals_payment ON signals(payment_id);
 
 
 def default_db_path() -> str:
-    return os.environ.get("UNHALTED_DB", "unhalted.db")
+    return config.database_path()
 
 
 class Store:

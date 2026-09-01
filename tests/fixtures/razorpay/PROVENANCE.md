@@ -1,29 +1,46 @@
 # Fixture provenance
 
-Every payload in this directory must be traceable to Razorpay. None are written by hand — a
-fixture invented by whoever also wrote the parser proves only that the two agree with each
-other.
+Every payload here must be traceable to Razorpay. None is written by hand — a fixture invented
+by whoever also wrote the parser proves only that the two agree with each other.
 
-## Current contents
+There are two kinds, and the difference matters.
 
-`payment_failed_{netbanking,card,wallets,upi}.json`
+## `captured/` — real payments
 
-- **Source:** Razorpay's published webhook documentation,
-  `razorpay/markdown-docs` → `webhooks/payments.md`, section "Payment Failed".
-- **Extracted:** 2026-08-31, programmatically from the document rather than retyped.
-- **What they are:** Razorpay's own example payloads. Their field names, shapes and values
-  are authoritative; the payments they describe never existed.
-- **What they are not:** captured from a real payment.
+Real test-mode payments that failed at Razorpay's hosted checkout, arrived here over a real
+webhook with a signature verified against the registered secret, and were fetched back through
+their API. Each file records its payment id and capture date.
 
-## What replaces them at C4
+| Payment | Method | Error | Captured |
+|---|---|---|---|
+| `pay_TWtdZSPcdnn9sv` | card | `payment_failed` / `gateway` | 2026-09-01 |
+| `pay_TWtk6oYP2Rnqvq` | card | `payment_failed` / `gateway` | 2026-09-01 |
 
-Real payment objects captured from test mode, produced with Razorpay's error-scenario test
-cards through the hosted checkout. Each will record its payment id, capture date and the card
-that produced it. At that point these become a secondary corpus for field shapes Razorpay
-documents but our account cannot generate.
+**What is real:** the payment object, the error fields, the webhook delivery and its signature,
+and the API they were read from — all produced by Razorpay's own systems.
 
-## Why they are not real yet
+**What is simulated:** the cause. In test mode no bank declines anything; Razorpay's mock
+checkout decides the failure. That is their simulation, not ours, and it is the closest thing to
+a real decline obtainable without live credentials and a customer with an empty account.
 
-There is no API-only path to a failed payment on this account — server-to-server card creation
-returns 403 and the S2S UPI endpoint returns 404 (verified 2026-08-31, recorded in
-CHECKPOINTS.md). A failed payment requires the hosted checkout, which needs a human.
+## The four in this directory — Razorpay's published examples
+
+`payment_failed_{netbanking,card,wallets,upi}.json`, extracted programmatically from
+`razorpay/markdown-docs` → `webhooks/payments.md`, section "Payment Failed", on 2026-08-31.
+
+Their field names, shapes and values are authoritative. The payments they describe never existed.
+They cover methods and error reasons this account cannot produce.
+
+## Why the captured set is small
+
+Two constraints, both verified rather than assumed:
+
+1. There is no API-only path to a failed payment on this account — server-to-server card creation
+   returns 403 and the S2S UPI endpoint returns 404. Producing one needs a human at the checkout.
+2. Razorpay's error-scenario cards do not yield their documented reasons through the hosted
+   payment-link checkout. Its mock bank page offers only Success and Failure, so every failure
+   returns a generic `payment_failed` / `gateway` whatever card was used. Those cards are for
+   Standard Checkout, the embeddable widget.
+
+So the captured set proves the pipeline runs on genuine Razorpay output. Breadth of error reasons
+comes from their published examples, labelled as such.

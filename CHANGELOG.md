@@ -9,6 +9,16 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- Real captured payments in `tests/fixtures/razorpay/captured/`, each recording its payment id and
+  capture date, with seven tests running the pipeline against them. `scripts/capture_fixtures.py`
+  captures them and `docs/capturing-fixtures.md` documents the procedure.
+
+### Fixed
+- The service now loads `.env`. It never did — preflight parsed the file itself and the demo passed
+  variables inline, so the only caller that mattered in production had no way to read its own
+  webhook secret and refused every delivery Razorpay made.
+
+### Added
 - The diagnosis taxonomy's facts are now generated from Razorpay's error references and pinned to
   a commit of `razorpay/markdown-docs`, so `taxonomy_version` identifies the exact documentation
   a classification came from. `scripts/build_taxonomy.py` builds it and `--check` fails when their
