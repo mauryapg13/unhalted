@@ -171,6 +171,15 @@ written fixture set and recorded, including the failures.
 
 **Serves:** the 2:25 beat, and the only honest answer to "why do you need a model at all".
 
+**Also built here:** the seam for a model call in diagnosis. C6 is when the model first enters the
+codebase, so the plumbing is written anyway. `diagnose()` gains a path to say "I cannot decide yet —
+verify the payment status and ask me again", which is the reconciliation loop Feature 1 describes and
+which no rules table can produce. One implementation today; room for the second.
+
+**Decided by C4's data, not now:** whether to wire the model for ambiguous diagnosis. Real payments
+will show how many cases land below the 0.70 threshold. Two in five hundred means do not build it;
+eighty means build it.
+
 **Not included:** conditional promises. The clarification loop. Regional languages beyond Hinglish.
 
 ---
@@ -183,6 +192,11 @@ terminates a low-value case as uneconomic with the calculation logged; and a dra
 containing an invented discount is blocked by compliance lint and regenerated.
 
 **Serves:** the 2:55 beat, and the answer to "isn't this more expensive than the money you recover".
+
+**Also built here:** human-queue preparation. Every held case costs a person about a minute of
+reading and sixty rupees of their time. The model summarises the signals and states a hypothesis with
+what it weighed, so the decision takes thirty seconds. The specification already asks for this —
+"queued for human review with the agent's best-guess hypothesis attached".
 
 **Not included:** real voice calls. Real human callbacks. Both are simulated.
 
@@ -265,12 +279,14 @@ in the repo and on camera.
 3. **C7 ladder depth** — drop rung sequencing entirely and keep two rungs that fully work. Keep the
    EV gate and the compliance lint.
 4. **C8 batch size** — 300 cases instead of 500. The lift calculation is identical.
-5. **C6 breadth** — support promise-to-pay, dispute precedence and opt-out completely. Remove the
-   other intents rather than shipping them unreliable.
+5. **C6 breadth, never C6 itself** — support promise-to-pay, dispute precedence, opt-out and
+   distress completely. Remove the other intents rather than shipping them unreliable.
 6. **C4 volume** — fewer real captured cases, more replay. Say so in the README.
 
-Never cut, at any cost: **C5** (the shell refusing the model) and the **holdout in C8**. Those two
-are the entire argument. A demo without them is a demo of something anyone could have built.
+Never cut, at any cost: **C5** (the shell refusing the model), the **holdout in C8**, and **C6**
+(reply understanding). The first two are the architectural argument. C6 is the answer to "what does
+the AI actually do" — 85% of documented failures are deterministic, so reply parsing is where the
+model is genuinely irreplaceable. Cut it and this is a well-built rules engine at an AI buildathon.
 
 ---
 
