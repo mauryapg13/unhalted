@@ -119,3 +119,24 @@ Two things worth keeping:
 **The lesson:** every path that exercised the configuration did so in a way production never
 would. Tests passed, the demo passed, preflight passed — and the one caller that mattered had
 never been tried. It took a real webhook from a real Razorpay to find it.
+
+---
+
+### The specification has nine stop rules; I wrote seven down and repeated it for two days
+**Date:** 2026-09-01
+
+**What happened:** `CHECKPOINTS.md` said "all seven stop rules" from the day it was written, and
+the README said the same. The specification's Scenario Outline defines nine: `REVOKED`, `OPT_OUT`,
+`DISPUTE`, `DISTRESS`, `RETRY_CAP`, `LADDER_END`, `CHARGEBACK`, `MERCHANT_PAUSE`, `REG_HOLD`.
+
+**Why:** I counted the rules that halt customer contact and missed `RETRY_CAP` and `LADDER_END`,
+which end a phase of recovery rather than silencing it. Then the wrong number was quoted back in
+every summary for two days without anyone recounting, including by me.
+
+**What changed:** Corrected everywhere, and `tests/test_stops.py` now asserts the exact set of nine
+codes against the specification rather than a count I remembered. A number in prose is a number
+nobody checks; a number in a test is one that cannot drift.
+
+**The lesson:** the same one as the Gherkin that did not parse. Anything asserted in a document and
+not asserted in a test will eventually be wrong, and will be repeated confidently until something
+executes it.

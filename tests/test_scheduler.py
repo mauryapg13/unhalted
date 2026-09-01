@@ -64,3 +64,61 @@ def test_a_past_time_pulled_into_a_restricted_band_is_then_moved_out() -> None:
 
 def test_every_decision_carries_the_rule_version_that_produced_it() -> None:
     assert schedule_retry(ist(14, 0), retry_count=0).rule_version
+
+
+# -- backoff ------------------------------------------------------------------
+
+
+def test_a_technical_failure_is_not_retried_into_the_same_outage() -> None:
+    """Issue #4: retrying in the same second burns an attempt on a live outage."""
+    from unhalted.models import DiagnosisClass
+    from unhalted.shell.scheduler import backoff_for
+
+    assert backoff_for(DiagnosisClass.RECOVERABLE_TECHNICAL, 0).total_seconds() > 0
+
+
+def test_backoff_grows_with_each_attempt() -> None:
+    from unhalted.models import DiagnosisClass
+    from unhalted.shell.scheduler import backoff_for
+
+    waits = [backoff_for(DiagnosisClass.RECOVERABLE_TECHNICAL, n) for n in range(3)]
+    assert waits == sorted(waits)
+    assert waits[0] < waits[-1]
+
+
+def test_a_balance_failure_waits_for_money_to_arrive() -> None:
+    """Half an hour does not change an empty account. A day might."""
+    from datetime import timedelta
+
+    from unhalted.models import DiagnosisClass
+    from unhalted.shell.scheduler import backoff_for
+
+    assert backoff_for(DiagnosisClass.RECOVERABLE_BALANCE, 0) >= timedelta(days=1)
+
+
+def test_a_notification_gap_waits_the_twenty_five_hours_razorpay_requires() -> None:
+    from datetime import timedelta
+
+    from unhalted.models import DiagnosisClass
+    from unhalted.shell.scheduler import backoff_for
+
+    assert backoff_for(DiagnosisClass.NOTIFICATION_GAP, 0) >= timedelta(hours=25)
+
+
+def test_backoff_past_the_last_step_holds_at_the_longest_wait() -> None:
+    from unhalted.models import DiagnosisClass
+    from unhalted.shell.scheduler import backoff_for
+
+    last = backoff_for(DiagnosisClass.RECOVERABLE_TECHNICAL, 2)
+    assert backoff_for(DiagnosisClass.RECOVERABLE_TECHNICAL, 99) == last
+
+
+def test_a_promised_date_is_not_pushed_past_by_backoff() -> None:
+    """A retry realigned to a date the customer named lands on that date.
+
+    schedule_retry honours the time it is given; backoff is the caller's to add,
+    and a caller honouring a promise does not add it.
+    """
+    promised = ist(9, 0, day=2)
+    d = schedule_retry(promised, retry_count=1, now=ist(22, 0, day=1))
+    assert d.scheduled_for == promised

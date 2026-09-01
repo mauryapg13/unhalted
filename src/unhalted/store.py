@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from unhalted import config
 from unhalted.models import AuditRecord, Case, CaseState, Diagnosis, FailureSignal
@@ -61,6 +62,20 @@ CREATE TABLE IF NOT EXISTS audit (
     action        TEXT NOT NULL,
     payload       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pending_actions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id       TEXT NOT NULL REFERENCES cases(id),
+    customer_ref  TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    scheduled_for TEXT,
+    state         TEXT NOT NULL DEFAULT 'pending',
+    cancel_reason TEXT,
+    created_at    TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_customer
+    ON pending_actions(customer_ref, state);
 
 CREATE TABLE IF NOT EXISTS processed_events (
     event_id      TEXT PRIMARY KEY,
@@ -278,6 +293,76 @@ class Store:
                 "INSERT OR IGNORE INTO processed_events (event_id, at, case_id) VALUES (?,?,?)",
                 (event_id, at.isoformat(), case_id),
             )
+
+    # -- pending actions -----------------------------------------------------
+
+    def schedule_action(
+        self,
+        case_id: str,
+        customer_ref: str,
+        kind: str,
+        scheduled_for: datetime | None,
+        at: datetime,
+    ) -> int:
+        """Record an action the agent intends to take."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                "INSERT INTO pending_actions"
+                " (case_id, customer_ref, kind, scheduled_for, state, created_at)"
+                " VALUES (?,?,?,?,'pending',?)",
+                (
+                    case_id,
+                    customer_ref,
+                    kind,
+                    scheduled_for.isoformat() if scheduled_for else None,
+                    at.isoformat(),
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def pending_actions(
+        self, *, customer_ref: str | None = None, case_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM pending_actions WHERE state = 'pending'"
+        params: list[Any] = []
+        if customer_ref:
+            sql += " AND customer_ref = ?"
+            params.append(customer_ref)
+        if case_id:
+            sql += " AND case_id = ?"
+            params.append(case_id)
+        with self._read() as conn:
+            return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
+    def cancel_pending(
+        self,
+        reason: str,
+        *,
+        customer_ref: str | None = None,
+        case_id: str | None = None,
+    ) -> int:
+        """Cancel every pending action in scope, in one transaction.
+
+        The specification requires that a revocation cancels a retry, two nudges
+        and a voice callback together, with no partial execution possible. One
+        UPDATE inside one transaction is what makes that true: either every
+        action is cancelled or none is, and no other thread sees a half-cancelled
+        customer because all connection use is serialised.
+        """
+        if not customer_ref and not case_id:
+            raise ValueError("cancel_pending needs a customer_ref or a case_id")
+
+        sql = "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ? WHERE state = 'pending'"
+        params: list[Any] = [reason]
+        if customer_ref:
+            sql += " AND customer_ref = ?"
+            params.append(customer_ref)
+        if case_id:
+            sql += " AND case_id = ?"
+            params.append(case_id)
+
+        with self._tx() as conn:
+            return int(conn.execute(sql, params).rowcount)
 
     def all_cases(self) -> list[Case]:
         with self._read() as conn:

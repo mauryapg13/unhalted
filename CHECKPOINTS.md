@@ -146,7 +146,7 @@ Hard rules are enforced and the refusals are visible.
 
 **Done when:** a model recommendation of 18:30 is rejected against the 17:00–21:30 NPCI band and
 logged as `WINDOW_VIOLATION`; the retry cap of 3 cannot be exceeded at any confidence; the ₹15,000
-ceiling and the mandate's own `max_amount` are checked before every debit; and all seven stop rules
+ceiling and the mandate's own `max_amount` are checked before every debit; and all **nine** stop rules
 fire and cancel pending actions atomically.
 
 **Serves:** the 1:45 beat, which is the strongest moment in the video.

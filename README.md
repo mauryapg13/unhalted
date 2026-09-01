@@ -69,8 +69,9 @@ Sourced from NPCI and Razorpay's recurring-payments documentation, not invented:
 - **The mandate's own `max_amount`.** Never attempt a debit above the registered ceiling.
 - **Retry cap of 3** per billing cycle, matching NPCI's one-execution-plus-three-retries allowance.
 - **Contact hours and a shared weekly contact ceiling** across every channel.
-- **Seven hard stops** — revocation, opt-out, dispute, distress, chargeback, merchant pause,
-  regulatory hold — that no recommendation at any confidence can override.
+- **Nine hard stops** — revocation, opt-out, dispute, distress, retry cap, ladder exhaustion,
+  chargeback, merchant pause and regulatory hold — that no recommendation at any confidence can
+  override.
 
 A merchant cannot pause a UPI mandate, only cancel it, so "pause recovery" always means pausing
 this program and never the mandate itself.
@@ -86,7 +87,7 @@ tests/features/
   retry_orchestration.feature  NPCI windows, preconditions, retry caps
   reply_understanding.feature  intent extraction, precedence, entity validation
   escalation_ladder.feature    intervention selection, EV gates, compliance lint
-  stopping_rules.feature       the seven hard stops
+  stopping_rules.feature       the nine hard stops
   audit_measurement.feature    decision records, replay, holdout measurement
   human_gates.feature          degradation behaviour and human review
 ```
