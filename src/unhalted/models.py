@@ -75,7 +75,18 @@ class Diagnosis(BaseModel):
 
     @property
     def authority(self) -> str:
-        """Confidence decides how much autonomy a diagnosis earns."""
+        """Confidence decides how much autonomy a diagnosis earns.
+
+        The two cut-points below are **policy, not measurement**. They came from
+        the specification; nobody measured them. A case at 0.69 holds for a human
+        and one at 0.71 acts, and that boundary is as chosen as the confidence
+        values the taxonomy stopped inventing.
+
+        The ordering is defensible — less certain means less autonomy — but the
+        specific numbers are asserted. C8 makes them answerable: the confidence
+        above which auto-executing turned out right more often than holding
+        would have been. See issue #7.
+        """
         if self.confidence >= 0.90:
             return "auto-execute"
         if self.confidence >= 0.70:

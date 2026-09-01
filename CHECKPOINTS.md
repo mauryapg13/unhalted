@@ -212,9 +212,12 @@ reported in a separate line that is not counted as recovery.
 
 **Serves:** the 3:05 beat, and the track's stated bar.
 
-**Also done at C8:** the provisional confidence values in `core/taxonomy.py` are replaced by
-the observed rate at which each mapping led to the correct recovery path. Until then they are
-policy floors, not evidence, and nothing derived from them is reported as measured.
+**Also done at C8:** the confidence thresholds are measured rather than asserted. `0.90` and
+`0.70` came from the specification and nobody measured them — a case at 0.69 holds and one at
+0.71 acts, and that cut-point is as invented as the confidence values C3 removed. With outcomes
+in hand it becomes answerable: the confidence above which auto-executing was right more often
+than holding would have been. Also settle whether `INFERRED` mappings really are less reliable
+than `DIRECT` ones, which is what the 0.8 factor assumes and nothing tests. See issue #7.
 
 **Not included:** statistical significance testing. Multi-month simulation.
 
