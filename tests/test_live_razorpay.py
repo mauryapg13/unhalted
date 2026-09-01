@@ -83,8 +83,13 @@ def test_the_payment_entity_carries_the_error_fields_we_diagnose_on(
         pytest.skip("no failed payments on this account yet; captured at C4")
 
     for payment in failed:
-        for field in ("error_code", "error_description", "error_source", "error_step",
-                      "error_reason"):
+        for field in (
+            "error_code",
+            "error_description",
+            "error_source",
+            "error_step",
+            "error_reason",
+        ):
             assert field in payment, f"{payment['id']} is missing {field}"
 
 
