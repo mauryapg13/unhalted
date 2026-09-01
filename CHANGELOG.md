@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- C6 (reply understanding) joins C5 and the C8 holdout in the never-cut set. With 85% of documented
+  failures resolving deterministically, reply parsing is where a model is irreplaceable, so cutting
+  it would remove the answer to what the AI does. The diagnosis model seam is recorded against C6,
+  where the plumbing is written anyway, and human-queue preparation against C7.
+
 ### Added
 - The diagnosis taxonomy's facts are now generated from Razorpay's error references and pinned to
   a commit of `razorpay/markdown-docs`, so `taxonomy_version` identifies the exact documentation
