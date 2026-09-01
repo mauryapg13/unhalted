@@ -9,13 +9,58 @@ forbids regardless of how confident the requester was.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from unhalted.models import DiagnosisClass
 from unhalted.shell import windows
 
 #: No more attempts than this per billing cycle, matching NPCI's allowance of
 #: one execution plus three retries. Not overridable at any confidence.
 RETRY_CAP = 3
+
+#: How long to wait before each attempt, by what went wrong.
+#:
+#: A technical failure is transient by definition — a bank was down, a gateway
+#: timed out. Retrying in the same second retries into the same outage, fails
+#: again, and spends one of the three attempts NPCI allows. Three of those can
+#: exhaust a whole cycle's allowance inside a downtime lasting minutes.
+#:
+#: A balance failure needs money to arrive, which takes a day at minimum and
+#: usually a payday. A notification gap needs the 25 hours Razorpay requires
+#: between a pre-debit alert and the charge it precedes.
+BACKOFF: dict[DiagnosisClass, tuple[timedelta, ...]] = {
+    DiagnosisClass.RECOVERABLE_TECHNICAL: (
+        timedelta(minutes=30),
+        timedelta(hours=2),
+        timedelta(hours=6),
+    ),
+    DiagnosisClass.RECOVERABLE_BALANCE: (
+        timedelta(days=1),
+        timedelta(days=1),
+        timedelta(days=2),
+    ),
+    DiagnosisClass.NOTIFICATION_GAP: (
+        timedelta(hours=25),
+        timedelta(hours=25),
+        timedelta(hours=25),
+    ),
+}
+
+#: Used when a class has no schedule of its own.
+DEFAULT_BACKOFF = timedelta(hours=6)
+
+
+def backoff_for(klass: DiagnosisClass | None, attempt: int) -> timedelta:
+    """How long to wait before attempt `attempt` (zero-indexed) of this class.
+
+    Kept beside the window rules because it is timing policy, and kept out of
+    `schedule_retry` because it applies to automatic retries only — a retry
+    realigned to a customer's stated payday must land on that day.
+    """
+    schedule = BACKOFF.get(klass) if klass else None
+    if not schedule:
+        return DEFAULT_BACKOFF
+    return schedule[min(attempt, len(schedule) - 1)]
 
 
 @dataclass(frozen=True)
@@ -42,6 +87,12 @@ def schedule_retry(
 ) -> ScheduleDecision:
     """Schedule a retry at or after `requested_at`, or refuse.
 
+    This honours the time it is given. Backoff is *not* applied here, because
+    not every retry wants it: a retry realigned to a date the customer named
+    should land on that date, not six hours after it. Callers scheduling an
+    automatic retry add `backoff_for()` themselves; callers honouring a promise
+    do not.
+
     A request landing inside an NPCI restricted band is not rejected outright —
     it is moved to the end of that band and logged as a violation, so the
     recommendation is honoured as closely as regulation permits and the fact
@@ -64,6 +115,7 @@ def schedule_retry(
     candidate = max(requested, floor)
     if candidate != requested:
         rules.append("NOT_IN_THE_PAST")
+
 
     check = windows.is_execution_allowed(candidate)
     if not check.allowed:

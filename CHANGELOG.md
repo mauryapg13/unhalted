@@ -13,6 +13,24 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- The nine stop rules from the specification, each with its code, scope, SLA and a stated reason
+  for existing. A stop cancels every pending action in scope inside one transaction, so a
+  revocation arriving while a retry, two nudges and a voice callback are pending cancels all four
+  together with no partial execution possible.
+- Monetary ceilings with the consequences Razorpay documents, which differ by method: a card above
+  ₹15,000 *fails*, so attempting it wastes an NPCI retry, while UPI above the frictionless limit
+  *waits for the customer to authorise that debit* — a different recovery path, not a failure. The
+  mandate's own `max_amount` is checked first, because consent outranks feasibility.
+- Retry backoff per diagnosis class — thirty minutes then two then six hours for technical
+  failures, a day for balance failures, twenty-five hours for a notification gap. Applied by the
+  caller rather than inside `schedule_retry`, so a retry realigned to a date the customer named
+  lands on that date instead of six hours after it.
+
+### Fixed
+- Technical failures were scheduled for the same instant they failed, retrying into the same
+  outage and burning one of the three attempts NPCI allows.
+
+### Added
 - Real captured payments in `tests/fixtures/razorpay/captured/`, each recording its payment id and
   capture date, with seven tests running the pipeline against them. `scripts/capture_fixtures.py`
   captures them and `docs/capturing-fixtures.md` documents the procedure.
