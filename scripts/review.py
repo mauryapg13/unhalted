@@ -26,6 +26,7 @@ import pathlib
 import sys
 from datetime import datetime
 
+from unhalted.core.summarise import brief
 from unhalted.models import AuditRecord, Case, CaseState, DiagnosisClass
 from unhalted.shell import windows
 from unhalted.store import Store
@@ -82,6 +83,36 @@ def show_case(store: Store, case: Case) -> None:
 
     pending = store.pending_actions(case_id=case.id)
     print(f"  {DIM}pending automated actions: {len(pending)}{RESET}")
+
+    briefing = brief(_record_for_briefing(store, case))
+    if briefing:
+        print(f"\n  {BOLD}the agent's read{RESET} {DIM}(advice, not a finding){RESET}")
+        for line in briefing.splitlines():
+            if line.strip():
+                print(f"    {line.strip()}")
+    else:
+        print(f"\n  {DIM}no briefing — the model was unavailable. The record above is complete.{RESET}")
+
+
+def _record_for_briefing(store: Store, case: Case) -> str:
+    parts = [f"Amount: Rs {case.amount_rupees:.0f}", f"State: {case.state.value}"]
+    for signal in store.signals(case.id):
+        parts.append(
+            f"Razorpay reported: reason={signal.error_reason} source={signal.error_source} "
+            f"step={signal.error_step} method={signal.method}"
+        )
+    diagnosis = store.latest_diagnosis(case.id)
+    if diagnosis:
+        parts.append(
+            f"The agent diagnosed {diagnosis.klass.value} at confidence "
+            f"{diagnosis.confidence}: {diagnosis.reasoning}"
+        )
+    for record in store.timeline(case.id):
+        if record.decision_type == "reply":
+            parts.append(f'The customer replied: "{record.inputs.get("reply", "")}"')
+        if record.decision_type == "stop":
+            parts.append(f"It stopped because: {record.action} ({', '.join(record.rules_fired)})")
+    return "\n".join(parts)
 
 
 def record_decision(

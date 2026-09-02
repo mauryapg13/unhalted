@@ -20,7 +20,7 @@ from unhalted.models import (
     FailureSignal,
     ParsedReply,
 )
-from unhalted.shell import limits, replies, stops, verify, windows
+from unhalted.shell import ladder, limits, replies, stops, verify, windows
 from unhalted.shell.scheduler import backoff_for, schedule_retry
 from unhalted.store import Store
 
@@ -111,18 +111,60 @@ def handle_failure(
         )
         return store.get_case(case.id) or case
 
-    if diagnosis.klass not in RETRYABLE:
+    # The diagnosis decides where this case joins the ladder, rather than
+    # everything starting at the bottom. A dead mandate does not begin with
+    # silent retries: they would spend NPCI's allowance proving what is known.
+    rung = ladder.entry_rung(diagnosis.klass)
+    if rung is None:
         store.record(
             AuditRecord(
-                case_id=case.id,
-                at=now,
-                decision_type="escalation",
-                action="retry-skipped",
+                case_id=case.id, at=now, decision_type="escalation",
+                action="no intervention applies",
                 inputs={"class": diagnosis.klass.value},
-                rules_fired=["SILENT_RETRY_CANNOT_SUCCEED"],
-                outcome="needs an intervention a retry cannot provide",
+                rules_fired=["NO_LADDER"],
+                outcome="nothing on the ladder can recover this",
             )
         )
+        return store.get_case(case.id) or case
+
+    economics = ladder.evaluate(rung, case.amount_paise)
+    if not economics.approved:
+        store.set_state(case.id, CaseState.UNRECOVERED)
+        store.cancel_pending("UNECONOMIC", case_id=case.id)
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="escalation",
+                action=f"ladder terminated at rung {rung.value} as uneconomic",
+                inputs={
+                    "rung": ladder.LADDER[rung].name,
+                    "calculation": economics.calculation,
+                    "rested_on_an_assumed_rate": economics.assumption_used,
+                },
+                rules_fired=economics.rules_fired,
+                rule_version=economics.rule_version,
+                outcome=economics.reason,
+            )
+        )
+        return store.get_case(case.id) or case
+
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=now, decision_type="escalation",
+            action=f"entering at rung {rung.value}: {ladder.LADDER[rung].name}",
+            inputs={
+                "class": diagnosis.klass.value,
+                "cost_paise": ladder.LADDER[rung].cost_paise,
+                "calculation": economics.calculation,
+                "rested_on_an_assumed_rate": economics.assumption_used,
+            },
+            rules_fired=economics.rules_fired,
+            rule_version=economics.rule_version,
+            outcome=ladder.LADDER[rung].why,
+        )
+    )
+
+    if rung is not ladder.Rung.SILENT_RETRY:
+        store.schedule_action(case.id, case.customer_ref, ladder.LADDER[rung].name, None, now)
         return store.get_case(case.id) or case
 
     # Before any retry is scheduled, the money has to be permissible. This is

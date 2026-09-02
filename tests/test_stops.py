@@ -185,7 +185,7 @@ def test_a_debit_above_the_card_ceiling_is_never_scheduled(store: Store) -> None
     kinds = [r.decision_type for r in store.timeline(case.id)]
     schedule = [r for r in store.timeline(case.id) if r.decision_type == "schedule"]
 
-    assert kinds == ["ingest", "diagnosis", "schedule"]
+    assert kinds == ["ingest", "diagnosis", "escalation", "schedule"]
     assert schedule[0].action == "retry refused on amount"
     assert schedule[0].rules_fired == ["LIMIT:WOULD_FAIL"]
     assert "fails automatically" in schedule[0].outcome

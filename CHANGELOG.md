@@ -13,6 +13,22 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- The escalation ladder, entered at the rung the diagnosis warrants rather than always at the
+  bottom. A broken mandate skips silent retries entirely, because no number of them fixes an
+  expired card and the attempts would spend NPCI's allowance proving what is already known.
+- An expected-value gate split by what it can honestly claim. A rung costing more than the whole
+  amount at stake is refused with no assumption at all — a probability cannot exceed 1. Anything
+  marginal rests on an assumed success rate, and any decision resting on one says so on the record.
+- Compliance lint. This project offers nothing, so any offer in a draft was invented: offer
+  language and **any percentage** are blocked, along with threats, manufactured urgency and
+  commitments the agent cannot make. A message must carry the amount, the merchant, and a way to
+  stop.
+- Drafting with one correction. A blocked draft is regenerated once with the violation quoted
+  back; a model that invents twice gets no third chance and the plain fallback is sent instead.
+- Human-queue briefing. The model reads a held case and states what it thinks with what it
+  weighed, so a reviewer decides in thirty seconds rather than two minutes. It is labelled as the
+  agent's opinion, and a reviewer without one still has the full record.
+
 - Diagnosis can now decline to decide. Where Razorpay documents that a failure might not be one —
   a `payment.failed` followed by a capture on the same transaction, when the customer retries in
   their own UPI app — the agent verifies whether the order was already paid before scheduling

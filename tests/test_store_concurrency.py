@@ -48,7 +48,7 @@ def test_concurrent_failures_each_get_their_own_intact_case(tmp_path) -> None:
             assert len(store.signals(case.id)) == 1
             assert store.latest_diagnosis(case.id) is not None
             kinds = [r.decision_type for r in store.timeline(case.id)]
-            assert kinds == ["ingest", "diagnosis", "schedule"], kinds
+            assert kinds == ["ingest", "diagnosis", "escalation", "schedule"], kinds
     finally:
         store.close()
 
@@ -107,7 +107,7 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
         assert recovered is not None
         assert recovered.id == case.id
         assert len(reopened.signals(case.id)) == 1
-        assert len(reopened.timeline(case.id)) == 3
+        assert len(reopened.timeline(case.id)) == 4
         assert len(reopened.pending_actions(case_id=case.id)) == 1
     finally:
         reopened.close()
