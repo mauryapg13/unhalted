@@ -140,3 +140,32 @@ nobody checks; a number in a test is one that cannot drift.
 **The lesson:** the same one as the Gherkin that did not parse. Anything asserted in a document and
 not asserted in a test will eventually be wrong, and will be repeated confidently until something
 executes it.
+
+---
+
+### I called C5 done while the ceiling check had no caller
+**Date:** 2026-09-02
+
+**What happened:** C5's "Done when" requires that the ₹15,000 ceiling and the mandate's own
+`max_amount` are "checked before every debit". `shell/limits.py` was written, had twelve passing
+tests, and was called by nothing. I reported the checkpoint complete, twice, and only looked when
+asked directly whether it was finished.
+
+**Why:** I verified the module worked rather than verifying the requirement was met. Those are
+different questions and the difference is the whole point of the checkpoint being worded as
+behaviour rather than as a component. A tested module nobody calls is decoration — the exact
+failure mode CHECKPOINTS.md warns about when it says anything unfinished is absent rather than
+stubbed. This was worse than a stub: it looked finished from every angle except the one that
+mattered.
+
+**What changed:** `limits.check` now runs in `handle_failure` before any retry is scheduled, and
+four tests assert it from the agent's entry point rather than from the module. A debit above the
+card ceiling, above the mandate's ceiling, or above UPI's frictionless limit is refused with its
+reason in the audit trail, and the case does not get a retry.
+
+`FailureSignal` gained `mandate_max_paise` for the consent check. It is `None` until the token is
+fetched, and the field says so at its definition: the network ceilings still apply, the consent
+check cannot run, and the audit record shows which of the two was evaluated.
+
+**The lesson:** "the tests pass" is not "the requirement is met". The next time a checkpoint says
+a rule is enforced, grep for the caller before saying it is done.
