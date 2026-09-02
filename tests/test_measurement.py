@@ -1,0 +1,182 @@
+"""The batch, the baseline, and the claims the report is allowed to make.
+
+The measurement is the most dangerous part of this project: it is where a
+number that nobody can defend would do the most damage. These tests are mostly
+about what the report must *not* assert.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+import pytest
+
+from unhalted.measure import baseline
+from unhalted.measure.generate import REASON_WEIGHTS, generate
+from unhalted.measure.report import band, render, run_batch
+from unhalted.models import DiagnosisClass, FailureSignal
+from unhalted.shell.windows import IST
+from unhalted.store import Store
+
+# -- the batch ---------------------------------------------------------------
+
+
+def test_the_batch_is_reproducible() -> None:
+    """A reported number has to be regenerable exactly."""
+    a = generate(120, seed=7)
+    b = generate(120, seed=7)
+    assert [c.signal.payment_id for c in a] == [c.signal.payment_id for c in b]
+    assert [c.signal.error_reason for c in a] == [c.signal.error_reason for c in b]
+    assert [c.holdout for c in a] == [c.holdout for c in b]
+
+
+def test_a_different_seed_gives_a_different_batch() -> None:
+    assert [c.signal.error_reason for c in generate(120, seed=1)] != [
+        c.signal.error_reason for c in generate(120, seed=2)
+    ]
+
+
+def test_every_generated_reason_exists_in_razorpay_s_taxonomy() -> None:
+    """The mix is invented; the vocabulary is not."""
+    import json
+
+    from unhalted.core.taxonomy import DATA_FILE
+
+    data = json.loads(DATA_FILE.read_text())
+    known = set(data["reasons"]["any"]) | set(data["reasons"]["card"]) | set(
+        data["reasons"]["upi"]
+    )
+    assert set(REASON_WEIGHTS) <= known
+
+
+def test_generated_signals_are_marked_as_generated() -> None:
+    """Nothing should be able to mistake these for captured payments."""
+    for case in generate(20):
+        assert case.signal.source == "generated:razorpay-taxonomy"
+
+
+def test_cohorts_are_assigned_before_any_policy_runs() -> None:
+    cases = generate(400, holdout_pct=10)
+    held = sum(1 for c in cases if c.holdout)
+    assert 0 < held < len(cases)
+    assert abs(held / len(cases) - 0.10) < 0.05
+
+
+# -- the baseline is Razorpay's, not a strawman ------------------------------
+
+
+def signal(hour: int = 11) -> FailureSignal:
+    return FailureSignal(
+        payment_id="pay_B", customer_ref="c", amount_paise=49900,
+        occurred_at=datetime(2026, 9, 1, hour, 30, tzinfo=IST), source="test",
+    )
+
+
+def test_the_baseline_retries_exactly_what_razorpay_documents() -> None:
+    """T+1, T+2, T+3, then halted."""
+    run = baseline.run(signal(), DiagnosisClass.RECOVERABLE_BALANCE)
+    assert run.attempts == baseline.BASELINE_RETRIES == 3
+
+
+def test_the_baseline_never_contacts_anybody() -> None:
+    run = baseline.run(signal(), DiagnosisClass.RECOVERABLE_BALANCE)
+    assert run.messages_sent == 0
+    assert run.intervention_paise == 0
+
+
+def test_the_baseline_spends_every_attempt_on_a_failure_it_cannot_fix() -> None:
+    """It has no diagnosis, so it cannot know the card is expired."""
+    run = baseline.run(signal(), DiagnosisClass.MANDATE_STATE_BROKEN)
+    assert run.futile_attempts == 3
+
+
+def test_the_baseline_retries_inside_forbidden_hours() -> None:
+    """Not a strawman: retrying at the same time of day lands in a restricted
+    band whenever the original failure did."""
+    assert baseline.run(signal(hour=11), DiagnosisClass.RECOVERABLE_BALANCE
+                        ).attempts_in_restricted_window == 3
+    assert baseline.run(signal(hour=14), DiagnosisClass.RECOVERABLE_BALANCE
+                        ).attempts_in_restricted_window == 0
+
+
+# -- what the comparison may claim -------------------------------------------
+
+
+@pytest.fixture
+def batch(tmp_path):
+    cases = generate(60, seed=99)
+    store = Store(str(tmp_path / "b.db"))
+    try:
+        agent, base = run_batch(cases, store)
+    finally:
+        store.close()
+    return cases, agent, base
+
+
+def test_the_agent_schedules_fewer_attempts_than_the_baseline(batch) -> None:
+    _, agent, base = batch
+    assert agent.attempts < base.attempts
+
+
+def test_the_agent_spends_no_attempts_on_failures_a_retry_cannot_fix(batch) -> None:
+    _, agent, base = batch
+    assert agent.futile_attempts == 0
+    assert base.futile_attempts > 0
+
+
+def test_the_agent_never_schedules_inside_a_restricted_band(batch) -> None:
+    _, agent, base = batch
+    assert agent.attempts_in_restricted_window == 0
+    assert base.attempts_in_restricted_window > 0
+
+
+def test_every_case_lands_in_exactly_one_confidence_band(batch) -> None:
+    _, agent, _ = batch
+    assert sum(agent.by_confidence_band.values()) == agent.cases
+
+
+@pytest.mark.parametrize(
+    ("confidence", "expected"),
+    [(1.0, ">=0.90 auto"), (0.9, ">=0.90 auto"), (0.89, "0.70-0.89 sampled"),
+     (0.7, "0.70-0.89 sampled"), (0.69, "<0.70 held"), (0.0, "<0.70 held")],
+)
+def test_confidence_bands_match_the_authority_thresholds(confidence, expected) -> None:
+    assert band(confidence) == expected
+
+
+# -- the report's honesty ----------------------------------------------------
+
+
+def test_the_report_says_the_batch_is_generated(batch) -> None:
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "The failures are generated" in text
+    assert "synthetic" in text
+
+
+def test_the_report_names_the_baseline_as_razorpay_s_own(batch) -> None:
+    """A control the judge can verify beats one we designed."""
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "documented behaviour" in text
+    assert "Not a strawman" in text
+
+
+def test_the_report_refuses_to_call_the_rupee_figure_a_measurement(batch) -> None:
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "No line in this section is a measurement" in text
+    assert "modelled" in text.lower()
+
+
+def test_the_report_admits_the_holdout_does_nothing_here(batch) -> None:
+    """A holdout absorbs unobserved variation, and generated data has none."""
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "it does no work here" in text
+
+
+def test_the_report_separates_counted_from_modelled(batch) -> None:
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert text.index("Part one — counted") < text.index("Part two — modelled")
