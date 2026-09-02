@@ -13,6 +13,12 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- A third real captured payment, and the finding that produced it: Razorpay's error-scenario cards
+  do not yield their documented reasons on this account through either checkout surface. Tested on
+  the hosted payment-link page and on Standard Checkout, the widget the cards are documented for.
+  Both return a generic `payment_failed` / `gateway`. The card taxonomy therefore remains
+  capability complete and verification narrow, which `PROVENANCE.md` states plainly.
+
 - The nine stop rules from the specification, each with its code, scope, SLA and a stated reason
   for existing. A stop cancels every pending action in scope inside one transaction, so a
   revocation arriving while a retry, two nudges and a voice callback are pending cancels all four
