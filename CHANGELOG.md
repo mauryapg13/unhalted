@@ -13,6 +13,17 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- Batch measurement. 300 generated failures drawn from Razorpay's published error taxonomy, run
+  through both the agent and Razorpay's own documented behaviour — three automatic retries on
+  consecutive days, no diagnosis, no contact. The report is split so a reader cannot confuse the
+  two halves: what each policy *does* is counted and needs no assumption, and the rupee figure is
+  modelled and shown as a range across success rates with the rates printed beside it.
+- The counted half over 300 cases: the baseline schedules 900 debit attempts to the agent's 217,
+  spends 108 of them on failures a retry provably cannot fix where the agent spends none, and
+  lands 315 inside NPCI's restricted bands where the agent lands none.
+- The confidence-band distribution, which is as far as issue #7 can be answered here: 9% of cases
+  fall below 0.70, so the threshold governs about one case in eleven rather than the system.
+
 - The escalation ladder, entered at the rung the diagnosis warrants rather than always at the
   bottom. A broken mandate skips silent retries entirely, because no number of them fixes an
   expired card and the attempts would spend NPCI's allowance proving what is already known.

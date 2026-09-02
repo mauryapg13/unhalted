@@ -203,23 +203,42 @@ what it weighed, so the decision takes thirty seconds. The specification already
 ---
 
 ### C8 — The number exists and is honest
-Recovery is measured against a control, not asserted.
+What can be counted is counted. What cannot is modelled and labelled as such.
 
-**Done when:** a batch of at least 300 cases runs to completion; a 10% holdout receives baseline
-behaviour only; the report shows recovery per diagnosis class, recovery per rung, stop-rule counts,
-intervention spend, model spend, and **lift as agent cohort minus holdout**; and false-failures are
-reported in a separate line that is not counted as recovery.
+**Done when:** a batch of at least 300 cases runs to completion against a 10% holdout receiving
+Razorpay's documented blind-retry behaviour, and the report is split into two parts that a reader
+cannot confuse.
 
-**Serves:** the 3:05 beat, and the track's stated bar.
+**Part one — countable, no assumptions.** These are facts about what the two policies *do*, and
+none of them needs to know whether anything recovered:
 
-**Also done at C8:** the confidence thresholds are measured rather than asserted. `0.90` and
-`0.70` came from the specification and nobody measured them — a case at 0.69 holds and one at
-0.71 acts, and that cut-point is as invented as the confidence values C3 removed. With outcomes
-in hand it becomes answerable: the confidence above which auto-executing was right more often
-than holding would have been. Also settle whether `INFERRED` mappings really are less reliable
-than `DIRECT` ones, which is what the 0.8 factor assumes and nothing tests. See issue #7.
+- futile attempts avoided — a blind retry spends all three NPCI attempts on a `card_expired` case;
+  the agent spends none
+- NPCI window violations avoided — the baseline has no window logic
+- messages not sent — nudging somebody about their own bank's downtime
+- contact-ceiling breaches avoided
+- cases held for a human, and how many fell below each confidence band
+- inference spend, measured — OpenRouter reports cost per call
+- intervention spend, from the ladder's own costs
 
-**Not included:** statistical significance testing. Multi-month simulation.
+**Part two — modelled, and labelled on the page.** Rupees recovered, as a sensitivity range across
+success rates rather than a point estimate, with the rates printed beside it.
+
+**Why it is split:** on a generated batch, whoever writes the outcome model decides how much was
+recovered. Reporting that as a measurement would be the worst honesty failure in the project. See
+issue #10.
+
+**On issue #7:** C8 cannot settle whether `0.90` and `0.70` are the right thresholds — that needs
+ground truth for classification correctness, and on generated data the correct class is whatever
+was generated. What it *can* do, and must, is measure **how much the thresholds matter**: the
+distribution of cases across the confidence bands. If 2% fall below 0.70 the cut-point is nearly
+irrelevant; if 40% do it is the most consequential number in the system. That is countable.
+
+**Serves:** the 3:05 beat, and the track's stated bar — which on a test account translates to
+"measured waste eliminated, plus a modelled recovery range", stated rather than implied.
+
+**Not included:** statistical significance testing. Multi-month simulation. Any claim that the
+recovery figure is a measurement.
 
 ---
 
@@ -322,6 +341,7 @@ Recorded as they are established, so no one re-litigates them later.
 | Emandate limit | ₹1,00,00,000 |
 | Ceiling rule | three limits, two different consequences. The shell must know the method before deciding |
 | Customer bank balance | not obtainable from any API |
+| Holdout on generated data | assigned and reported, but does no work — a control absorbs unobserved variation and two deterministic policies over generated cases have none. Both run over every case instead, which is a paired comparison. The holdout earns its keep against real traffic |
 | Retention offers | **not built, by decision.** The project offers nothing, so any offer in a draft was invented and is blocked outright rather than checked against a catalogue |
 | Expected-value gate | split. A rung costing more than the whole stake is refused with no assumption, since a probability cannot exceed 1. Anything marginal rests on a success rate that is **merchant policy, not a measurement** — this project cannot measure one, because a generated batch's outcomes are decided by whoever writes them. C8 does not fix that. See issue #10 |
 | Documented error reasons | 110 in `errors/payments/list.md`; 16 card and 10 UPI carry root-cause detail |
