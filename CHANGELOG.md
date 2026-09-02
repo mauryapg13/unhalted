@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- `unhalted compare <id>` — the same case under both policies, side by side. The agent's column is
+  read off the audit trail and Razorpay's is `measure/baseline.py` replaying their documented
+  T+1/T+2/T+3 behaviour, both anchored to the moment the failure arrived. On an expired card the
+  baseline spends three debits that provably cannot work, all three inside an NPCI restricted band,
+  and the agent spends none.
+- Neither column claims a recovery. The comparison stops where the batch report's part one stops,
+  for the same reason: an outcome model decides the comparison, so there isn't one.
+
 ### Fixed
 - The customer terminal, the reviewer terminal and the CLI now read one database. Two of them
   hardcoded `session.db` while the CLI defaulted to `unhalted.db`, so a reviewer could open the
