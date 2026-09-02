@@ -73,7 +73,7 @@ def test_a_failed_payment_becomes_a_case_with_a_scheduled_retry(client) -> None:
     assert detail["diagnosis"]["source"] == "rules-table"
 
     kinds = [row["decision_type"] for row in detail["timeline"]]
-    assert kinds == ["ingest", "diagnosis", "schedule"]
+    assert kinds == ["ingest", "diagnosis", "escalation", "schedule"]
 
     scheduled = detail["timeline"][-1]
     assert scheduled["action"].startswith("retry at")
