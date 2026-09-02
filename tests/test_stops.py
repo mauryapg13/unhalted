@@ -224,3 +224,37 @@ def test_a_permissible_amount_still_schedules_a_retry(store: Store) -> None:
     case = handle_failure(store, big_signal(499 * 100), now=datetime(2026, 9, 1, 14, 0, tzinfo=IST))
     schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
     assert schedule.action.startswith("retry at")
+
+
+# -- which stops leave a case needing a person --------------------------------
+
+
+def test_the_stops_that_leave_an_unanswered_question_hold_for_a_human() -> None:
+    """Halting is not resolving.
+
+    A dispute is a factual claim about the customer's money that nothing here
+    can settle — verification is against transaction history and any refund
+    needs human approval. A chargeback is already formal. Distress needs a
+    person by its nature, and a regulatory advisory comes from someone with
+    more authority than this system.
+
+    A stop that halts without holding abandons the case silently, which is
+    worse than not halting.
+    """
+    for code in ("DISPUTE", "CHARGEBACK", "DISTRESS", "REG_HOLD"):
+        assert stops.rule(code).terminal_state is CaseState.HELD_FOR_HUMAN, code
+
+
+def test_the_stops_with_nothing_left_to_decide_do_not_hold() -> None:
+    """A revoked mandate is closed, not pending. An opt-out needs no ruling."""
+    assert stops.rule("REVOKED").terminal_state is CaseState.CLOSED_REVOKED
+    assert stops.rule("LADDER_END").terminal_state is CaseState.UNRECOVERED
+    for code in ("OPT_OUT", "RETRY_CAP", "MERCHANT_PAUSE"):
+        assert stops.rule(code).terminal_state is not CaseState.HELD_FOR_HUMAN, code
+
+
+def test_a_dispute_holds_the_case_for_a_person(store: Store) -> None:
+    now = datetime(2026, 9, 1, 14, 0, tzinfo=IST)
+    case = store.open_case(signal("pay_DISP", "cust_disp"))
+    apply_stop(store, "DISPUTE", case_id=case.id, customer_ref="cust_disp", now=now)
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN

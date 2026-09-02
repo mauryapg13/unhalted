@@ -68,10 +68,13 @@ RULES: dict[str, StopRule] = {
     "DISPUTE": StopRule(
         code="DISPUTE",
         trigger="dispute intent parsed",
-        action="halt debits and nudges",
+        action="halt debits and nudges, and route to a human",
         scope=StopScope.CUSTOMER,
         sla=timedelta(seconds=60),
-        terminal_state=None,
+        # Held, not closed. The claim is verified against transaction history,
+        # any refund needs human approval, and recovery resumes only after the
+        # customer confirms the adjustment. None of that happens on its own.
+        terminal_state=CaseState.HELD_FOR_HUMAN,
         suppresses_contact=True,
         why="chasing someone who says you took their money twice turns a complaint into a chargeback",
     ),
@@ -108,10 +111,10 @@ RULES: dict[str, StopRule] = {
     "CHARGEBACK": StopRule(
         code="CHARGEBACK",
         trigger="a chargeback is raised on the mandate",
-        action="freeze all recovery for the customer",
+        action="freeze all recovery for the customer, and route to a human",
         scope=StopScope.CUSTOMER,
         sla=timedelta(minutes=5),
-        terminal_state=None,
+        terminal_state=CaseState.HELD_FOR_HUMAN,
         suppresses_contact=True,
         why="the dispute is now formal; any further contact becomes evidence",
     ),

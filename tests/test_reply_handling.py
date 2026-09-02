@@ -1,0 +1,152 @@
+"""What a reply changes, from the agent's entry point.
+
+The consequence of a reply is the agent's business, not the surface that
+received it. These call `handle_reply` rather than the parser, because the bug
+they exist to prevent was a decision that worked and a consequence that never
+fired.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+import pytest
+
+from unhalted import agent
+from unhalted.models import (
+    CaseState,
+    DetectedIntent,
+    FailureSignal,
+    Intent,
+    ParsedReply,
+    Sentiment,
+)
+from unhalted.shell.windows import IST
+from unhalted.store import Store
+
+NOW = datetime(2026, 9, 20, 14, 0, tzinfo=IST)
+
+
+@pytest.fixture
+def store(tmp_path):
+    s = Store(str(tmp_path / "reply.db"))
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def case(store):
+    signal = FailureSignal(
+        payment_id="pay_REPLY1",
+        customer_ref="cust_reply",
+        amount_paise=49900,
+        occurred_at=NOW,
+        source="test",
+        method="card",
+        error_reason="insufficient_funds",
+        error_source="customer",
+    )
+    c = agent.handle_failure(store, signal, now=NOW)
+    store.schedule_action(c.id, c.customer_ref, "retry", NOW, NOW)
+    store.schedule_action(c.id, c.customer_ref, "nudge", NOW, NOW)
+    return c
+
+
+def fake_parse(*intents, date_raw=None, sentiment=Sentiment.NEUTRAL, failed=False):
+    """Replaces the model, so these test the consequence rather than the reading."""
+
+    def _parse(text, context=""):
+        return ParsedReply(
+            raw=text,
+            intents=[DetectedIntent(type=i, confidence=c, evidence=text) for i, c in intents],
+            payment_date_raw=date_raw,
+            sentiment=sentiment,
+            failed=failed,
+            failure_reason="stubbed failure" if failed else None,
+        )
+
+    return _parse
+
+
+def test_a_cancellation_request_cancels_the_pending_retry(store, case, monkeypatch) -> None:
+    """The bug this file exists for: the agent must not charge someone who
+    just asked to cancel while a person gets round to actioning it."""
+    monkeypatch.setattr(agent, "parse_reply", fake_parse((Intent.CANCELLATION_REQUEST, 0.97)))
+
+    assert len(store.pending_actions(case_id=case.id)) == 2
+    agent.handle_reply(store, case, "cancel it please", now=NOW)
+
+    assert store.pending_actions(case_id=case.id) == []
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN
+
+
+def test_an_unreadable_reply_does_not_leave_a_retry_armed(store, case, monkeypatch) -> None:
+    monkeypatch.setattr(agent, "parse_reply", fake_parse(failed=True))
+    agent.handle_reply(store, case, "???", now=NOW)
+    assert store.pending_actions(case_id=case.id) == []
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN
+
+
+def test_a_dispute_halts_everything(store, case, monkeypatch) -> None:
+    monkeypatch.setattr(agent, "parse_reply", fake_parse((Intent.DISPUTE, 0.9)))
+    agent.handle_reply(store, case, "double debit hua tha", now=NOW)
+    assert store.pending_actions(customer_ref=case.customer_ref) == []
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN
+
+
+def test_a_promise_replaces_the_pending_retry_rather_than_adding_one(
+    store, case, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        agent, "parse_reply",
+        fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw="2026-09-25"),
+    )
+    agent.handle_reply(store, case, "25 tarikh ko kar dunga", now=NOW)
+
+    pending = store.pending_actions(case_id=case.id)
+    assert len(pending) == 1, "the old retry should be replaced, not duplicated"
+    assert pending[0]["kind"] == "retry"
+    assert pending[0]["scheduled_for"].startswith("2026-09-25")
+
+
+def test_a_promise_with_no_usable_date_changes_no_timing(store, case, monkeypatch) -> None:
+    """The specification: record the promise, ask them to confirm a date."""
+    monkeypatch.setattr(
+        agent, "parse_reply",
+        fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw="2026-02-31"),
+    )
+    _, outcome = agent.handle_reply(store, case, "31 feb ko", now=NOW)
+
+    assert outcome.realign_to is None
+    assert "PROMISE_WITHOUT_USABLE_DATE" in outcome.rules_fired
+    assert len(store.pending_actions(case_id=case.id)) == 2, "nothing should have moved"
+
+
+def test_every_reply_is_written_to_the_audit_trail(store, case, monkeypatch) -> None:
+    monkeypatch.setattr(agent, "parse_reply", fake_parse((Intent.OPT_OUT, 0.98)))
+    agent.handle_reply(store, case, "stop messaging me", now=NOW)
+
+    replies = [r for r in store.timeline(case.id) if r.decision_type == "reply"]
+    assert len(replies) == 1
+    assert replies[0].inputs["reply"] == "stop messaging me"
+    assert replies[0].inputs["intents"][0]["type"] == "opt-out"
+    assert "STOP_RULE:OPT_OUT" in replies[0].rules_fired
+
+
+def test_the_reply_records_the_evidence_the_model_quoted(store, case, monkeypatch) -> None:
+    """An auditor needs to see why, not only what."""
+    monkeypatch.setattr(agent, "parse_reply", fake_parse((Intent.DISTRESS, 0.97)))
+    agent.handle_reply(store, case, "job chali gayi", now=NOW)
+
+    reply = next(r for r in store.timeline(case.id) if r.decision_type == "reply")
+    assert reply.inputs["intents"][0]["evidence"]
+
+
+def test_a_held_case_reports_the_date_today_correctly(store, case, monkeypatch) -> None:
+    """Guards against a promise being validated against the wrong day."""
+    monkeypatch.setattr(
+        agent, "parse_reply",
+        fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw=date(2026, 9, 19).isoformat()),
+    )
+    _, outcome = agent.handle_reply(store, case, "kal", now=NOW)
+    assert outcome.realign_to is None, "a date in the past must be refused"
