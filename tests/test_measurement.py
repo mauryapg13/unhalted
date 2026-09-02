@@ -180,3 +180,34 @@ def test_the_report_separates_counted_from_modelled(batch) -> None:
     cases, agent, base = batch
     text = render(cases, agent, base)
     assert text.index("Part one — counted") < text.index("Part two — modelled")
+
+
+def test_every_diagnosis_is_attributed_to_a_source(batch) -> None:
+    """Issue #16: how the diagnosis was reached is counted, not assumed."""
+    _, agent, _ = batch
+    assert sum(agent.by_source.values()) == agent.cases
+
+
+def test_the_report_counts_model_calls_and_not_only_spend(batch) -> None:
+    """A bare `Rs 0.00` reads as unmeasured. A count of calls reads as measured."""
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "Diagnoses that required a model call" in text
+    assert "Zero is the measurement, not a missing one" in text
+
+
+def test_the_report_says_the_spend_figure_covers_diagnosis_only(batch) -> None:
+    """A reader could reasonably assume it covers reply parsing too. It does not."""
+    cases, agent, base = batch
+    text = render(cases, agent, base)
+    assert "diagnosis only" in text
+    assert "The model is not free" in text
+
+
+def test_the_report_explains_why_nothing_was_closed_as_uneconomic(batch) -> None:
+    """Issue #15: a zero here is arithmetic, and the report has to say which."""
+    cases, agent, base = batch
+    assert agent.closed_uneconomic == 0
+    text = render(cases, agent, base)
+    assert "Why no case was closed as uneconomic" in text
+    assert "unreachable at entry" in text

@@ -30,8 +30,9 @@ from datetime import UTC, datetime
 from unhalted.core.diagnose import diagnose
 from unhalted.measure import baseline
 from unhalted.measure.generate import GeneratedCase
-from unhalted.models import CaseState, DiagnosisClass
+from unhalted.models import CaseState, DiagnosisClass, DiagnosisSource
 from unhalted.shell import windows
+from unhalted.shell.ladder import ENTRY, LADDER
 from unhalted.shell.verify import Verification
 
 
@@ -60,6 +61,9 @@ class Totals:
     by_class: Counter = field(default_factory=Counter)
     by_rung: Counter = field(default_factory=Counter)
     by_confidence_band: Counter = field(default_factory=Counter)
+    #: How each diagnosis was reached. A zero in the model row is the whole
+    #: architectural claim appearing as a count rather than an assertion.
+    by_source: Counter = field(default_factory=Counter)
 
 
 def band(confidence: float) -> str:
@@ -86,6 +90,7 @@ def run_batch(cases: list[GeneratedCase], store) -> tuple[Totals, Totals]:
         agent_totals.cases += 1
         agent_totals.by_class[diagnosis.klass.value] += 1
         agent_totals.by_confidence_band[band(diagnosis.confidence)] += 1
+        agent_totals.by_source[diagnosis.source.value] += 1
 
         case = handle_failure(store, signal, verifier=verifier, now=now)
 
@@ -149,6 +154,21 @@ def render(
     def row(label: str, a, b, note: str = "") -> str:
         return f"| {label} | {a} | {b} | {note} |"
 
+    model_calls = agent.by_source.get(DiagnosisSource.MODEL.value, 0)
+    rules_calls = agent.by_source.get(DiagnosisSource.RULES_TABLE.value, 0)
+    spend_note = (
+        "**Zero is the measurement, not a missing one.** Every failure in this batch was drawn "
+        "from Razorpay's documented taxonomy, and every one of them resolved deterministically. "
+        "Inference cost nothing because nothing needed inferring — which is the 85% claim in "
+        "this README appearing as a count."
+        if model_calls == 0
+        else "Each call is a failure the rules table could not resolve on its own."
+    )
+    max_entry_cost = max(
+        LADDER[r].cost_paise for r in ENTRY.values() if r is not None
+    )
+    min_amount = min(c.signal.amount_paise for c in cases)
+
     saved_attempts = base.attempts - agent.attempts
     saved_futile = base.futile_attempts - agent.futile_attempts
     saved_windows = base.attempts_in_restricted_window - agent.attempts_in_restricted_window
@@ -203,10 +223,41 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 {row("Attempts inside NPCI restricted bands", agent.attempts_in_restricted_window, base.attempts_in_restricted_window, f"{saved_windows} avoided")}
 {row("Customer contacts", agent.messages, base.messages, "baseline never contacts anyone")}
 {row("Cases held for a human", agent.held_for_human, 0, "baseline has no such path")}
-{row("Cases closed as uneconomic", agent.closed_uneconomic, 0, "with the arithmetic recorded")}
+{row("Cases closed as uneconomic", agent.closed_uneconomic, 0, "unreachable at entry rungs; see below")}
 
 Intervention spend: **Rs {agent.intervention_paise / rupee:,.0f}**.
-Inference spend: **Rs {model_spend_paise / rupee:,.2f}**.
+
+### What the model was asked to do
+
+| | Count | Share |
+|---|---:|---:|
+| Diagnoses resolved from the rules table | {rules_calls} | {rules_calls / max(1, agent.cases):.0%} |
+| Diagnoses that required a model call | {model_calls} | {model_calls / max(1, agent.cases):.0%} |
+
+Inference spend: **Rs {model_spend_paise / rupee:,.2f}** across {model_calls} call(s).
+
+{spend_note}
+
+This figure covers **diagnosis only**, because that is all this batch contains. The model's other
+work — parsing customer replies, drafting messages, briefing a human — needs a customer on the
+other end, and a generated batch has nobody to reply. Measured separately, reply parsing costs
+about Rs 0.01 per message against OpenRouter's reported `usage.cost`; see
+`docs/reply-evaluation.md`. The model is not free. It was not needed here.
+
+### Why no case was closed as uneconomic
+
+The count above is **{agent.closed_uneconomic}**, and that is arithmetic rather than a gap in the
+gate. The provable half refuses a rung costing more than the whole amount at stake. Cases enter
+the ladder by diagnosis class, and the most expensive entry rung is re-authorisation at
+Rs {max_entry_cost / rupee:.0f}; the smallest amount in this batch is Rs {min_amount / rupee:.0f}.
+No entry rung can cost more than the stake, so the provable gate is unreachable at entry — by
+inspection, at any batch size.
+
+It becomes reachable on **escalation**, where a Rs 60 human callback meets a Rs 49 subscription.
+This batch does not escalate, and cannot: escalating means deciding that the previous rung failed,
+which is an outcome model, and the reason this report has a part two is that this project refuses
+to write one. So the gate is exercised by `tests/test_ladder.py` against stated amounts, not by
+this batch. Recorded rather than papered over: see issue #15.
 
 ### Where the cases went
 

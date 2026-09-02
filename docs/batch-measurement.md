@@ -1,6 +1,6 @@
 # Batch measurement
 
-Generated 2026-09-02 12:39 UTC · 300 cases ·
+Generated 2026-09-02 20:05 UTC · 300 cases ·
 Rs 120,850 at risk
 
 ## What this batch is
@@ -34,10 +34,41 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 | Attempts inside NPCI restricted bands | 0 | 315 | 315 avoided |
 | Customer contacts | 56 | 0 | baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | baseline has no such path |
-| Cases closed as uneconomic | 0 | 0 | with the arithmetic recorded |
+| Cases closed as uneconomic | 0 | 0 | unreachable at entry rungs; see below |
 
 Intervention spend: **Rs 92**.
-Inference spend: **Rs 0.00**.
+
+### What the model was asked to do
+
+| | Count | Share |
+|---|---:|---:|
+| Diagnoses resolved from the rules table | 300 | 100% |
+| Diagnoses that required a model call | 0 | 0% |
+
+Inference spend: **Rs 0.00** across 0 call(s).
+
+**Zero is the measurement, not a missing one.** Every failure in this batch was drawn from Razorpay's documented taxonomy, and every one of them resolved deterministically. Inference cost nothing because nothing needed inferring — which is the 85% claim in this README appearing as a count.
+
+This figure covers **diagnosis only**, because that is all this batch contains. The model's other
+work — parsing customer replies, drafting messages, briefing a human — needs a customer on the
+other end, and a generated batch has nobody to reply. Measured separately, reply parsing costs
+about Rs 0.01 per message against OpenRouter's reported `usage.cost`; see
+`docs/reply-evaluation.md`. The model is not free. It was not needed here.
+
+### Why no case was closed as uneconomic
+
+The count above is **0**, and that is arithmetic rather than a gap in the
+gate. The provable half refuses a rung costing more than the whole amount at stake. Cases enter
+the ladder by diagnosis class, and the most expensive entry rung is re-authorisation at
+Rs 2; the smallest amount in this batch is Rs 49.
+No entry rung can cost more than the stake, so the provable gate is unreachable at entry — by
+inspection, at any batch size.
+
+It becomes reachable on **escalation**, where a Rs 60 human callback meets a Rs 49 subscription.
+This batch does not escalate, and cannot: escalating means deciding that the previous rung failed,
+which is an outcome model, and the reason this report has a part two is that this project refuses
+to write one. So the gate is exercised by `tests/test_ladder.py` against stated amounts, not by
+this batch. Recorded rather than papered over: see issue #15.
 
 ### Where the cases went
 

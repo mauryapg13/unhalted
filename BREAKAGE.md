@@ -198,3 +198,47 @@ the checkpoint's tests pass, not when the checkpoint is finished.
 
 **The lesson:** enforcement covers the paths you thought of. The first drift was doing the wrong
 thing, and a hook catches that. The second was doing nothing, and nothing catches that.
+
+---
+
+### Three stop rules, three different ways of not stopping
+**Date:** 2026-09-02
+
+**What happened:** Three separate bugs, found on three separate days, all in the path between
+deciding to stop and actually stopping.
+
+1. A customer replying "cancel my subscription" had the case routed to a human, and **the
+   scheduled retry stayed armed**. Found by the user asking, mid-test, why it was still retrying.
+2. A dispute halted the case without holding it for a human. Halting is not routing; the case
+   would have sat closed with nobody looking at it. Found by the user asking whether disputes
+   should go to a person.
+3. `unhalted case` printed `pending 0 automated action(s)` directly beneath a timeline saying a
+   retry was scheduled for 13:00. Both lines were true. The retry was recorded in the audit trail
+   as a decision, and never recorded as pending work — so `apply_stop` had nothing to cancel and
+   cancelled nothing. **A customer revoking their mandate would still have been charged.**
+
+**Why:** The same shape every time. Each individual piece was correct — the stop rules fired, the
+audit trail recorded, the CLI reported honestly. What was missing was the wiring between them, and
+a unit test that exercises one piece cannot see a seam that does not exist. Every test passed
+through all three.
+
+The third is the clearest: the system had a diary and a calendar. It wrote "charge them at 1pm" in
+the diary, which nothing reads, and never put it on the calendar, which is what gets cancelled.
+
+**What changed:**
+
+- Cancellation now cancels pending actions, under a stated rule: *nothing automated may remain
+  scheduled on a case a person now owns.*
+- `DISPUTE` and `CHARGEBACK` carry `terminal_state=HELD_FOR_HUMAN` rather than halting.
+- A scheduled retry is written to `pending_actions`, not only to the audit trail, with a
+  regression test in `tests/test_stops.py`.
+
+**The lesson, and the reason these are one entry:** all three were found by *using* the system —
+two by the user typing into it, one by reading its own output — and none by the 246 tests. Tests
+check that a part works. Only operating the thing checks that the parts are joined. The C9 CLI
+paid for itself before it was merged, which is an argument for building observability early rather
+than last.
+
+**Written late, and worth saying so.** These were fixed as they were found, but logged here in one
+pass afterwards rather than at the moment each broke — a smaller version of the drift recorded
+above. The pattern only became visible once there were three of them.
