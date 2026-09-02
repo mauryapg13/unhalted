@@ -312,6 +312,7 @@ Recorded as they are established, so no one re-litigates them later.
 | Holdout baseline | Razorpay's documented T+1/T+2/T+3 retry model, not an invented control |
 | API-only path to a failed payment | **none on this account.** S2S card creation returns 403, S2S UPI returns 404. A failed payment requires the hosted checkout |
 | Driving the hosted checkout by automation | unreliable — cross-origin iframe accepts synthetic keystrokes once, then ignores edits. Capture is human-in-the-loop |
+| Error-scenario cards, **either checkout surface** | **do not produce their documented reason on this account.** Tested twice: the hosted payment-link page (2026-08-31) and Standard Checkout, the embeddable widget the cards are documented for (2026-09-01, `pay_TX7bxkAG4ZrWNO`). Both return generic `payment_failed` / `gateway` whatever card is used. Issue #8, closed as answered |
 | Error-scenario cards on the payment-link checkout | **do not produce their documented reason.** The hosted page's mock bank offers only Success/Failure, so every failure returns generic `payment_failed` / `gateway` regardless of card. Verified 2026-08-31 with the `insufficient_fund` card. Those cards are for Standard Checkout, the embeddable widget |
 | Captured variety | one real reason obtainable this way. The other documented reasons come from Razorpay's published payloads, labelled as such, and the batch replays both |
 | NPCI restricted bands | 10:00–13:00 and 17:00–21:30 IST |
