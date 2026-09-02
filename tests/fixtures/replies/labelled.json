@@ -1,0 +1,652 @@
+{
+  "today": "2026-09-20",
+  "cases": [
+    {
+      "id": "spec-01",
+      "reply": "salary aane do, 2 tarikh ko pakka ho jayega",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "spec",
+      "expect_date": "2026-10-02"
+    },
+    {
+      "id": "spec-02",
+      "reply": "15th ko clear kar dunga, lekin pichhle month double debit hua tha, woh adjust karo pehle",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay",
+        "dispute",
+        "set-off-request"
+      ],
+      "source": "spec",
+      "expect_date": "2026-09-15"
+    },
+    {
+      "id": "spec-03",
+      "reply": "mujhe dobara message mat karna",
+      "language": "hinglish",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-04",
+      "reply": "stop messaging me",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-05",
+      "reply": "band karo ye sab",
+      "language": "hinglish",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-06",
+      "reply": "STOP",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-07",
+      "reply": "why do you keep texting, leave me alone",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-08",
+      "reply": "ye service bekaar hai, paisa kat gaya par recharge nahi hua",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "spec",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "spec-09",
+      "reply": "I want to cancel this subscription, stop charging me",
+      "language": "english",
+      "expect_intents": [
+        "cancellation-request"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-10",
+      "reply": "refund milte hi pay kar dunga",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-11",
+      "reply": "hmm dekhta hu",
+      "language": "hinglish",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-12",
+      "reply": "bahut mushkil time chal raha hai, job chali gayi",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "spec-13",
+      "reply": "call mat karo, message hi karna",
+      "language": "hinglish",
+      "expect_intents": [
+        "channel-preference"
+      ],
+      "source": "spec"
+    },
+    {
+      "id": "pp-01",
+      "reply": "kal kar dunga bhai",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored",
+      "expect_date": "2026-09-21"
+    },
+    {
+      "id": "pp-02",
+      "reply": "paisa aate hi kar dunga",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-03",
+      "reply": "3 tarikh ko ho jayega",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored",
+      "expect_date": "2026-10-03"
+    },
+    {
+      "id": "pp-04",
+      "reply": "I'll pay on the 5th",
+      "language": "english",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored",
+      "expect_date": "2026-10-05"
+    },
+    {
+      "id": "pp-05",
+      "reply": "abhi balance nahi hai, agle hafte karta hu",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-06",
+      "reply": "sunday tak ho jayega",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-07",
+      "reply": "monday ko salary aayegi tab kar dunga",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-08",
+      "reply": "ho jayega tension mat lo",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-09",
+      "reply": "will do it tomorrow",
+      "language": "english",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-10",
+      "reply": "thoda time do, kar dunga",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-11",
+      "reply": "next month pakka",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "pp-12",
+      "reply": "aaj shaam tak kar deta hu",
+      "language": "hinglish",
+      "expect_intents": [
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-01",
+      "reply": "maine to already pay kar diya tha",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-02",
+      "reply": "do baar paisa kata hai mera",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-03",
+      "reply": "you charged me twice this month",
+      "language": "english",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-04",
+      "reply": "mera paisa kat gaya par subscription active nahi hua",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-05",
+      "reply": "I never signed up for this",
+      "language": "english",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-06",
+      "reply": "ye charge galat hai, maine cancel kar diya tha",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "dp-07",
+      "reply": "amount zyada kata hai, 499 ka tha 999 kata",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "so-01",
+      "reply": "pehle purana refund do phir baat karo",
+      "language": "hinglish",
+      "expect_intents": [
+        "set-off-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "so-02",
+      "reply": "adjust kar lo pichle payment se",
+      "language": "hinglish",
+      "expect_intents": [
+        "set-off-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "so-03",
+      "reply": "settle it against the refund you owe me",
+      "language": "english",
+      "expect_intents": [
+        "set-off-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-01",
+      "reply": "mat bhejo message",
+      "language": "hinglish",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-02",
+      "reply": "unsubscribe",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-03",
+      "reply": "please remove my number",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-04",
+      "reply": "pareshan mat karo",
+      "language": "hinglish",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-05",
+      "reply": "do not contact me again",
+      "language": "english",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "oo-06",
+      "reply": "bar bar mat bhejo yaar",
+      "language": "hinglish",
+      "expect_intents": [
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "cx-01",
+      "reply": "subscription cancel kar do",
+      "language": "hinglish",
+      "expect_intents": [
+        "cancellation-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "cx-02",
+      "reply": "mujhe ye plan nahi chahiye ab, band kar do",
+      "language": "hinglish",
+      "expect_intents": [
+        "cancellation-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "cx-03",
+      "reply": "cancel my membership please",
+      "language": "english",
+      "expect_intents": [
+        "cancellation-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "cx-04",
+      "reply": "ab is service ki zarurat nahi, cancel kariye",
+      "language": "hinglish",
+      "expect_intents": [
+        "cancellation-request"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "sc-01",
+      "reply": "app chalta hi nahi hai theek se",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "sc-02",
+      "reply": "customer care koi uthata nahi phone",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "sc-03",
+      "reply": "the app has been broken for a week",
+      "language": "english",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "sc-04",
+      "reply": "bohot slow hai service, paise ki barbadi",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "sc-05",
+      "reply": "quality pehle jaisi nahi rahi",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "sc-06",
+      "reply": "very disappointed with this service",
+      "language": "english",
+      "expect_intents": [
+        "service-complaint"
+      ],
+      "source": "authored",
+      "forbid_intents": [
+        "cancellation-request"
+      ]
+    },
+    {
+      "id": "ds-01",
+      "reply": "ghar me hospital ka kharcha chal raha hai",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ds-02",
+      "reply": "naukri chali gayi hai, abhi kuch nahi kar sakta",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ds-03",
+      "reply": "i lost my job last month, please understand",
+      "language": "english",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ds-04",
+      "reply": "papa bimar hai, paisa nahi hai bilkul",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ds-05",
+      "reply": "financial condition bohot kharab hai abhi",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ch-01",
+      "reply": "phone mat karo, whatsapp pe likho",
+      "language": "hinglish",
+      "expect_intents": [
+        "channel-preference"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ch-02",
+      "reply": "please email instead of calling",
+      "language": "english",
+      "expect_intents": [
+        "channel-preference"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "ch-03",
+      "reply": "sirf message karna, call nahi",
+      "language": "hinglish",
+      "expect_intents": [
+        "channel-preference"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "am-01",
+      "reply": "ok",
+      "language": "english",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "am-02",
+      "reply": "dekhte hain",
+      "language": "hinglish",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "am-03",
+      "reply": "hmm",
+      "language": "hinglish",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "am-04",
+      "reply": "?",
+      "language": "english",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "am-05",
+      "reply": "kya hua",
+      "language": "hinglish",
+      "expect_intents": [
+        "unknown"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "mx-01",
+      "reply": "paisa kat gaya phir bhi message aa raha hai, band karo",
+      "language": "hinglish",
+      "expect_intents": [
+        "dispute",
+        "opt-out"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "mx-02",
+      "reply": "abhi job nahi hai, agle mahine dekhta hu",
+      "language": "hinglish",
+      "expect_intents": [
+        "distress",
+        "promise-to-pay"
+      ],
+      "source": "authored"
+    },
+    {
+      "id": "mx-03",
+      "reply": "service theek nahi hai par pay kar dunga 10 ko",
+      "language": "hinglish",
+      "expect_intents": [
+        "service-complaint",
+        "promise-to-pay"
+      ],
+      "source": "authored",
+      "expect_date": "2026-10-10"
+    },
+    {
+      "id": "mx-04",
+      "reply": "call mat karo, 5 tarikh ko kar dunga",
+      "language": "hinglish",
+      "expect_intents": [
+        "channel-preference",
+        "promise-to-pay"
+      ],
+      "source": "authored",
+      "expect_date": "2026-10-05"
+    }
+  ],
+  "note": "`today` is deliberately mid-month. Set to the 2nd, a reply saying '2 tarikh ko' is ambiguous between today and next month, which tests the corpus rather than the parser."
+}
