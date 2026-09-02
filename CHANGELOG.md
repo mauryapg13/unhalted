@@ -16,9 +16,9 @@
 - The escalation ladder, entered at the rung the diagnosis warrants rather than always at the
   bottom. A broken mandate skips silent retries entirely, because no number of them fixes an
   expired card and the attempts would spend NPCI's allowance proving what is already known.
-- An expected-value gate split by what it can honestly claim. A rung costing more than the whole
-  amount at stake is refused with no assumption at all — a probability cannot exceed 1. Anything
-  marginal rests on an assumed success rate, and any decision resting on one says so on the record.
+- An expected-value gate split by what it can honestly claim. The success rates it uses for the marginal half are merchant policy rather than estimates anyone made — this project cannot measure them, and a decision resting on the conservative default records it as unmeasured.
+  A rung costing more than the whole amount at stake is refused with no assumption at all — a
+  probability cannot exceed 1.
 - Compliance lint. This project offers nothing, so any offer in a draft was invented: offer
   language and **any percentage** are blocked, along with threats, manufactured urgency and
   commitments the agent cannot make. A message must carry the amount, the merchant, and a way to
