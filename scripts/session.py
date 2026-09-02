@@ -154,6 +154,7 @@ def main() -> int:
     print(f"\n  {DIM}held cases are reviewable in another terminal:{RESET}")
     print(f"  {DIM}  uv run python scripts/review.py{RESET}")
     print(f"  {DIM}  uv run unhalted case {case.id}{RESET}")
+    print(f"  {DIM}  uv run unhalted compare {case.id}   <- against Razorpay's own policy{RESET}")
     print(f"  {DIM}state is in {SESSION_DB.name}{RESET}")
     store.close()
     return 0

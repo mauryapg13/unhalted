@@ -1,6 +1,7 @@
 """The command line. How a person reads what the agent did.
 
     unhalted case CASE-1AD69F26     one case, end to end
+    unhalted compare CASE-1AD69F26  the same case under Razorpay's retry policy
     unhalted cases                  what is open, held, closed
     unhalted queue                  what is waiting on a person
     unhalted report                 the batch numbers
@@ -17,9 +18,11 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import textwrap
 
 from unhalted import config
-from unhalted.models import AuditRecord, CaseState
+from unhalted.measure.compare import LEGEND, compare, differences
+from unhalted.models import AuditRecord, Case, CaseState
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -78,17 +81,28 @@ def render_record(record: AuditRecord, *, verbose: bool) -> list[str]:
     return lines
 
 
-def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
+def find_case(store: Store, case_id: str) -> Case | None:
+    """Whatever the person reasonably typed. A prefix is enough if it is unique."""
     case = store.get_case(case_id)
+    if case is not None:
+        return case
+
+    wanted = case_id.upper().removeprefix("CASE-")
+    matches = [
+        c for c in store.all_cases()
+        if c.id.upper().removeprefix("CASE-").startswith(wanted)
+    ]
+    if len(matches) != 1:
+        print(f"no case matching {case_id!r}"
+              + (f" ({len(matches)} partial matches)" if matches else ""))
+        return None
+    return matches[0]
+
+
+def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
+    case = find_case(store, case_id)
     if case is None:
-        matches = [c for c in store.all_cases()
-                   if c.id.upper().removeprefix("CASE-").startswith(
-                       case_id.upper().removeprefix("CASE-"))]
-        if len(matches) != 1:
-            print(f"no case matching {case_id!r}"
-                  + (f" ({len(matches)} partial matches)" if matches else ""))
-            return 1
-        case = matches[0]
+        return 1
 
     print(f"\n{b(case.id)}   Rs {case.amount_rupees:,.0f}   {case.customer_ref}")
     print(d(f"  state {case.state.value}   opened {case.opened_at:%Y-%m-%d %H:%M %Z}   "
@@ -119,6 +133,88 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
         when = action["scheduled_for"] or "unscheduled"
         print(d(f"    {action['kind']:<24} {when}"))
     print()
+    return 0
+
+
+# -- unhalted compare ---------------------------------------------------------
+
+#: Two columns and a clock. Wide enough for a rule name, narrow enough for a
+#: terminal nobody has resized.
+_TIME_W, _COL_W = 17, 42
+
+
+def _cell(text: str) -> list[str]:
+    return textwrap.wrap(text, _COL_W) or [""]
+
+
+def _column_line(when: str, left: str, right: str, *, mark: bool = False) -> str:
+    gutter = "|" if mark else " "
+    return f"  {when:<{_TIME_W}}{gutter} {left:<{_COL_W}}  {right}"
+
+
+def show_comparison(store: Store, case_id: str) -> int:
+    """The same failure under both policies, side by side.
+
+    Nothing here is simulated for the agent's side: it is the audit trail. The
+    baseline's side is Razorpay's documented behaviour replayed over the same
+    signal. Neither column claims a recovery.
+    """
+    case = find_case(store, case_id)
+    if case is None:
+        return 1
+
+    result = compare(
+        case,
+        store.signals(case.id),
+        store.latest_diagnosis(case.id),
+        store.timeline(case.id),
+    )
+
+    print(f"\n{b(result.case_id)}   Rs {result.amount_rupees:,.0f}   {result.customer_ref}")
+    if result.signal is not None:
+        print(d(f"  Razorpay said: reason={result.signal.error_reason}  "
+                f"source={result.signal.error_source}  step={result.signal.error_step}"))
+    if result.diagnosis is not None:
+        model = result.diagnosis.model_name or "no model call"
+        print(d(f"  agent diagnosed {result.diagnosis.klass.value} at "
+                f"{result.diagnosis.confidence} via {result.diagnosis.source.value} ({model})"))
+
+    print()
+    print(_column_line("", b("Razorpay's retry policy"), b("unhalted")))
+    print(d("  " + "-" * (_TIME_W + 2 * _COL_W + 4)))
+
+    for event in result.events:
+        when = f"{event.at:%d %b %H:%M}" if event.at else ""
+        left, right = _cell(event.baseline), _cell(event.agent)
+        for n in range(max(len(left), len(right))):
+            print(_column_line(
+                when if n == 0 else "",
+                left[n] if n < len(left) else "",
+                right[n] if n < len(right) else "",
+                mark=event.marked and n == 0,
+            ).rstrip())
+
+    print(_column_line("", b(result.base.outcome), b(result.agent.outcome)).rstrip())
+
+    print(f"\n  {b('counted')}   {d('what each policy did, with nothing assumed about outcomes')}")
+    print(d(f"    {'':<30}{'agent':>8}{'baseline':>10}"))
+    for label, agent_n, base_n, note in differences(result):
+        print(f"    {label:<30}{agent_n:>8}{base_n:>10}   {d(note)}".rstrip())
+
+    used = [m for m in LEGEND if any(m in e.baseline for e in result.events)]
+    if used:
+        print()
+        for marker in used:
+            print(d(f"    {marker:<14}{LEGEND[marker]}"))
+
+    moved = result.agent.corrected_into_window
+    if moved:
+        print(d(f"\n  {moved} retry {'was' if moved == 1 else 'were'} moved out of a restricted "
+                f"band rather than cancelled — the shell honours"))
+        print(d("  the recommendation as closely as NPCI permits, and records that it had to."))
+
+    print(d("\n  Neither column says what was recovered. That needs an outcome model,"))
+    print(d("  and whoever writes one decides the comparison.\n"))
     return 0
 
 
@@ -227,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
     cases_cmd.add_argument("--state", help="filter by state")
 
     sub.add_parser("queue", help="what is waiting on a person")
+    comparison = sub.add_parser(
+        "compare", help="the same case under Razorpay's documented retry policy"
+    )
+    comparison.add_argument("case_id")
+
     sub.add_parser("report", help="the batch measurement")
     sub.add_parser("capabilities", help="what this deployment can do")
 
@@ -235,6 +336,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in (None,):
         parser.print_help()
         return 0
+    if args.command == "compare":
+        store = open_store(args.db)
+        try:
+            return show_comparison(store, args.case_id)
+        finally:
+            store.close()
+
     if args.command == "report":
         return show_report()
     if args.command == "capabilities":

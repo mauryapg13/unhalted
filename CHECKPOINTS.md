@@ -260,6 +260,29 @@ from the same measurement tables. A generated report, not a dashboard — no ser
 
 ---
 
+### C9b — One case, both policies, side by side
+What the agent did, against what Razorpay's documented behaviour would have done with the same
+failure. On one real case, from stored state.
+
+**Done when:** `unhalted compare <id>` prints the two policies as parallel timelines over the same
+signal, and a counted summary beneath them — debit attempts, attempts a retry provably cannot fix,
+attempts inside NPCI restricted bands, customer contacts — with every agent-side number read from
+the audit trail and every baseline-side number produced by `measure/baseline.py`.
+
+**Why it exists.** The strongest facts in this project are all comparative, and until now every one
+of them lived in a batch report read after the interesting part was over. A single case shows no
+contrast at all: the agent refuses a futile retry, and a reader with nothing to compare it against
+sees a system doing nothing. This is also the view a merchant needs to decide whether to keep the
+agent running, which is why it is a capability rather than staging.
+
+**Serves:** operating the system, and the video's central beat — in that order.
+
+**Not included:** any claim about what either policy *recovered*. The comparison stops at what each
+policy does, for the same reason the batch report splits in two. A `compare` that reported rupees
+would be the batch report's dishonesty at case scale.
+
+**Ordering.** Worked before C10, because it changes what the video shows and the video is C10.
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 

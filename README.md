@@ -181,12 +181,36 @@ uv run pytest
 Read what the agent did:
 
 ```bash
-uv run unhalted cases              # what is open, held, closed
-uv run unhalted case CASE-8EF53CCD # one case, end to end
-uv run unhalted queue              # what is waiting on a person
-uv run unhalted report             # the batch measurement
-uv run unhalted capabilities       # what this deployment can actually do
+uv run unhalted cases                 # what is open, held, closed
+uv run unhalted case CASE-8EF53CCD    # one case, end to end
+uv run unhalted compare CASE-8EF53CCD # the same case under Razorpay's retry policy
+uv run unhalted queue                 # what is waiting on a person
+uv run unhalted report                # the batch measurement
+uv run unhalted capabilities          # what this deployment can actually do
 ```
+
+`compare` is the one to run first. A single case shows no contrast on its own — the agent declines
+a futile retry, and a reader with nothing to compare it against sees a system doing nothing. Put
+Razorpay's documented policy beside it and the same case reads differently:
+
+```
+                     Razorpay's retry policy                     unhalted
+  03 Sep 17:30                                                   mandate-state-broken
+  03 Sep 17:30                                                   entering at rung 3: re-authorisation link
+  04 Sep 17:30     | DEBIT ATTEMPT 1/3  cannot work · NPCI band
+  05 Sep 17:30     | DEBIT ATTEMPT 2/3  cannot work · NPCI band
+  06 Sep 17:30     | DEBIT ATTEMPT 3/3  cannot work · NPCI band
+  06 Sep 17:30       HALTED — no diagnosis, no contact, no memory
+
+                                     agent  baseline
+    Debit attempts                       0         3   3 fewer
+    Attempts a retry cannot fix          0         3   3 avoided
+    Attempts inside NPCI bands           0         3   3 avoided
+```
+
+The left column is `measure/baseline.py` replaying Razorpay's documentation. The right is the audit
+trail. Neither says what was recovered — that needs an outcome model, and whoever writes one
+decides the comparison.
 
 See a failed payment go through end to end — a forged webhook rejected, a real one accepted,
 a redelivery recognised, and the resulting case timeline:
