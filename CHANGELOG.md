@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- The customer terminal, the reviewer terminal and the CLI now read one database. Two of them
+  hardcoded `session.db` while the CLI defaulted to `unhalted.db`, so a reviewer could open the
+  queue and correctly see nothing while a case sat held in the other file. All three take
+  `UNHALTED_DB` now.
+
 ### Changed
 - The batch report counts **model calls**, not only inference spend. `Rs 0.00` beside no other
   figure reads as unmeasured; `0 of 300 diagnoses required a model call` reads as the measurement

@@ -26,13 +26,15 @@ import pathlib
 import sys
 from datetime import datetime
 
+from unhalted import config
 from unhalted.core.summarise import brief
 from unhalted.models import AuditRecord, Case, CaseState, DiagnosisClass
 from unhalted.shell import windows
 from unhalted.store import Store
 
-ROOT = pathlib.Path(__file__).parent.parent
-SESSION_DB = ROOT / "session.db"
+#: The same database the CLI and `scripts/session.py` use. A reviewer looking
+#: at a different copy of the state is a reviewer looking at nothing.
+SESSION_DB = pathlib.Path(config.database_path())
 
 BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 

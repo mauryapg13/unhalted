@@ -23,6 +23,7 @@ import pathlib
 import sys
 from datetime import datetime
 
+from unhalted import config
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
@@ -33,7 +34,9 @@ from unhalted.store import Store
 ROOT = pathlib.Path(__file__).parent.parent
 CAPTURED = ROOT / "tests" / "fixtures" / "razorpay" / "captured"
 MERCHANT = "Acme Streaming"
-SESSION_DB = ROOT / "session.db"
+#: The same database the CLI reads. One store, three ways in: this terminal,
+#: `scripts/review.py`, and `unhalted case`. Overridable with UNHALTED_DB.
+SESSION_DB = pathlib.Path(config.database_path())
 
 BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 
@@ -150,6 +153,7 @@ def main() -> int:
         print(f"  {r.at:%H:%M}  {r.decision_type:<10} {r.action}{DIM}{fired}{RESET}")
     print(f"\n  {DIM}held cases are reviewable in another terminal:{RESET}")
     print(f"  {DIM}  uv run python scripts/review.py{RESET}")
+    print(f"  {DIM}  uv run unhalted case {case.id}{RESET}")
     print(f"  {DIM}state is in {SESSION_DB.name}{RESET}")
     store.close()
     return 0
