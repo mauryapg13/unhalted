@@ -323,7 +323,7 @@ Recorded as they are established, so no one re-litigates them later.
 | Ceiling rule | three limits, two different consequences. The shell must know the method before deciding |
 | Customer bank balance | not obtainable from any API |
 | Retention offers | **not built, by decision.** The project offers nothing, so any offer in a draft was invented and is blocked outright rather than checked against a catalogue |
-| Expected-value gate | split. A rung costing more than the whole stake is refused with no assumption, since a probability cannot exceed 1. Anything marginal rests on an assumed success rate that is flagged on the decision. See issue #10 |
+| Expected-value gate | split. A rung costing more than the whole stake is refused with no assumption, since a probability cannot exceed 1. Anything marginal rests on a success rate that is **merchant policy, not a measurement** — this project cannot measure one, because a generated batch's outcomes are decided by whoever writes them. C8 does not fix that. See issue #10 |
 | Documented error reasons | 110 in `errors/payments/list.md`; 16 card and 10 UPI carry root-cause detail |
 | Documented ambiguities | exactly 4 of 26 card/UPI reasons have more than one root cause: `card:payment_cancelled`, `upi:credit_failed`, `upi:gateway_technical_error`, `upi:payment_timed_out`. **85% of documented reasons are deterministic by Razorpay's own reference** |
 | Ambiguity is method-specific | `payment_timed_out` has 1 documented cause on cards and 2 on UPI |

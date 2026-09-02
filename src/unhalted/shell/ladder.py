@@ -90,10 +90,20 @@ ENTRY: dict[DiagnosisClass, Rung | None] = {
     DiagnosisClass.UNKNOWN: None,
 }
 
-#: An assumed success rate per rung, used only for the conditional half of the
-#: gate. **Not measured.** C8 replaces these with observed rates; until then any
-#: decision resting on one says so.
-ASSUMED_SUCCESS: dict[Rung, float] = {
+#: Success rates per rung. **These are merchant policy, not measurements, and
+#: this project cannot measure them.**
+#:
+#: Measuring them needs real recovery outcomes at volume. A generated batch
+#: cannot supply that: whoever writes the batch's outcome model decides the
+#: rates, and reading them back out is circular. C8 does not fix this and it was
+#: wrong of an earlier note here to say it would.
+#:
+#: What a merchant has that this project does not is their own history. The
+#: values below are a deliberately conservative starting point so the gate has
+#: somewhere to begin, and any decision resting on one is flagged
+#: `assumption_used` so a reader can see what it rests on. Override them per
+#: deployment; do not treat them as findings.
+DEFAULT_SUCCESS: dict[Rung, float] = {
     Rung.SILENT_RETRY: 0.20,
     Rung.NUDGE: 0.25,
     Rung.REAUTHORISATION: 0.30,
@@ -123,8 +133,13 @@ def evaluate(
     *,
     customer_ltv_paise: int | None = None,
     refused_channels: frozenset[str] = frozenset(),
+    success_rates: dict[Rung, float] | None = None,
 ) -> LadderDecision:
-    """Whether this rung is worth trying for this amount."""
+    """Whether this rung is worth trying for this amount.
+
+    `success_rates` is the merchant's, and the default is a conservative
+    placeholder rather than a finding. Decisions that used it say so.
+    """
     intervention = LADDER[rung]
     rules: list[str] = []
 
@@ -157,17 +172,22 @@ def evaluate(
             rules_fired=["UNECONOMIC:PROVABLE"],
         )
 
-    # Conditional, and resting on a rate nobody has measured.
-    rate = ASSUMED_SUCCESS[rung]
+    # Conditional, and resting on a rate this project cannot measure. The
+    # merchant supplies it or accepts the conservative default.
+    rate = (success_rates or DEFAULT_SUCCESS)[rung]
     expected = rate * stake
+    source = "merchant's" if success_rates else "default, unmeasured"
     calculation = (
-        f"assumed success {rate:.0%} x stake Rs {stake / RUPEE:.0f} "
+        f"{source} success rate {rate:.0%} x stake Rs {stake / RUPEE:.0f} "
         f"= Rs {expected / RUPEE:.2f} against cost Rs {intervention.cost_paise / RUPEE:.0f}"
     )
     if expected <= intervention.cost_paise:
         return LadderDecision(
             rung=rung, approved=False,
-            reason="expected recovery does not cover the cost, on an assumed success rate",
+            reason=(
+                "expected recovery does not cover the cost, on a success rate this "
+                "project did not measure"
+            ),
             calculation=calculation,
             assumption_used=True,
             rules_fired=["UNECONOMIC:ASSUMED"],
@@ -178,7 +198,10 @@ def evaluate(
 
     return LadderDecision(
         rung=rung, approved=True,
-        reason="expected recovery exceeds the cost, on an assumed success rate",
+        reason=(
+            "expected recovery exceeds the cost, on a success rate this project "
+            "did not measure"
+        ),
         calculation=calculation,
         assumption_used=True,
         rules_fired=rules or ["ECONOMIC"],

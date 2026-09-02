@@ -72,7 +72,7 @@ def test_a_marginal_case_is_decided_on_an_assumed_rate_and_says_so() -> None:
     d = evaluate(Rung.VOICE_CALL, rupees(499))
     assert d.approved
     assert d.assumption_used is True, "a decision resting on an estimate must admit it"
-    assert "assumed success" in d.calculation
+    assert "success rate" in d.calculation
 
 
 def test_a_case_worth_less_than_the_expected_cost_is_refused() -> None:
@@ -106,22 +106,22 @@ def test_the_conditional_gate_is_only_as_good_as_its_assumed_rate() -> None:
     against a Rs 8 call. Neither answer is wrong — the number nobody has
     measured decides it.
 
-    Issue #10 replaces these rates with observed ones at C8. Until then, every
-    decision resting on one is flagged, and this test exists so nobody mistakes
-    the conditional half of the gate for a measurement.
+    These rates are merchant policy, not measurements, and this project cannot
+    measure them — a generated batch cannot supply real recovery outcomes, so
+    reading rates back out of one would be circular. Every decision resting on a
+    rate is flagged, and this test exists so nobody mistakes the conditional half
+    of the gate for a finding.
     """
     d = evaluate(Rung.VOICE_CALL, rupees(49))
     assert d.assumption_used is True
-    assert "assumed success" in d.calculation
+    assert "success rate" in d.calculation
 
-    from unhalted.shell import ladder
+    from unhalted.shell.ladder import DEFAULT_SUCCESS
 
-    original = ladder.ASSUMED_SUCCESS[Rung.VOICE_CALL]
-    try:
-        ladder.ASSUMED_SUCCESS[Rung.VOICE_CALL] = 0.10
-        pessimistic = evaluate(Rung.VOICE_CALL, rupees(49))
-    finally:
-        ladder.ASSUMED_SUCCESS[Rung.VOICE_CALL] = original
+    pessimistic = evaluate(
+        Rung.VOICE_CALL, rupees(49),
+        success_rates={**DEFAULT_SUCCESS, Rung.VOICE_CALL: 0.10},
+    )
 
     assert d.approved and not pessimistic.approved, (
         "the same case flips on the assumed rate alone, which is why the rate "
@@ -231,3 +231,20 @@ def test_an_uneconomic_case_is_closed_with_its_arithmetic_recorded(tmp_path) -> 
         assert store.pending_actions(case_id=case.id) == []
     finally:
         store.close()
+
+
+def test_a_merchant_can_supply_their_own_rates() -> None:
+    """The rates belong to whoever has the history, which is not this project."""
+    from unhalted.shell.ladder import DEFAULT_SUCCESS
+
+    optimistic = evaluate(
+        Rung.HUMAN_CALLBACK, rupees(200),
+        success_rates={**DEFAULT_SUCCESS, Rung.HUMAN_CALLBACK: 0.95},
+    )
+    assert optimistic.approved
+    assert "merchant's" in optimistic.calculation
+
+
+def test_the_default_rate_is_labelled_as_unmeasured_in_the_record() -> None:
+    d = evaluate(Rung.VOICE_CALL, rupees(499))
+    assert "unmeasured" in d.calculation
