@@ -3,9 +3,28 @@
 ## [Unreleased]
 
 ### Changed
+- The batch report counts **model calls**, not only inference spend. `Rs 0.00` beside no other
+  figure reads as unmeasured; `0 of 300 diagnoses required a model call` reads as the measurement
+  it is, and it is the 85% claim appearing as a count. The report also states that the figure
+  covers diagnosis alone, since a generated batch has no customer replies to parse, and gives the
+  measured per-parse cost so nobody concludes the model is free. Closes #16.
+
+- The report explains why no case was closed as uneconomic instead of leaving a bare zero. The
+  provable half of the expected-value gate cannot fire at an entry rung — the dearest entry is
+  re-authorisation at ₹2 against a cheapest stake of ₹49 — and becomes reachable only on
+  escalation, which this batch cannot simulate without the outcome model the whole report refuses
+  to write. The gate is exercised by its own tests, not by the batch, and the demo no longer leans
+  on it. Closes #15.
+
+- The README's results table carries measured numbers, and its measurement section no longer
+  promises a lift figure derived from the holdout. Rupees recovered is stated as modelled
+  everywhere it appears. Closes #10.
+
 - The confidence thresholds in `Diagnosis.authority` now say at the point of definition that they
   are policy rather than measurement. `0.90` and `0.70` came from the specification and nobody
-  measured them; C8 makes them answerable. See issue #7.
+  measured them. Generated data cannot settle them — the correct class is whatever was generated —
+  so what is reported instead is how much the choice matters: 68% of cases land above 0.90, 23%
+  between, 9% below. Closes #7.
 
 - C6 (reply understanding) joins C5 and the C8 holdout in the never-cut set. With 85% of documented
   failures resolving deterministically, reply parsing is where a model is irreplaceable, so cutting

@@ -116,26 +116,60 @@ NPCI rejection to compare it against.
 
 ## Measurement
 
-A configurable holdout — 10% by default — of recoverable cases receives baseline behaviour only:
-one blind retry, no diagnosis, no contact.
+The control is **Razorpay's own documented behaviour** — three automatic retries on consecutive
+days, no diagnosis, no contact, then `halted`. Not a strawman: it is what their subscription
+documentation says happens today.
 
-**Reported lift is the agent cohort minus the holdout.** Gross recovery is never reported as lift.
-Cases that turn out to be false failures, where the debit had actually succeeded, are reported
-separately and never counted as recoveries.
+A holdout of 10% is assigned before any policy sees a case, and on generated data **it does no
+work** — a control group exists to absorb unobserved variation, and two deterministic policies
+over a generated batch have none. Both policies are run over *every* case instead, which is a
+paired comparison and strictly stronger. The holdout stays for the day this runs against real
+traffic.
+
+**Rupees recovered is not reported as a measurement**, here or anywhere in this repo. Deciding
+whether a given retry succeeded means writing an outcome model, and whoever writes it decides the
+answer. What is countable without one — attempts spent, attempts that provably cannot work,
+windows violated, customers contacted, cases held — is reported as fact; recovery is reported as a
+sensitivity range with its assumptions on the page.
 
 ## Results
 
-Measurements land here once the batch has run. Nothing is claimed until it is measured.
+300 generated failures drawn from Razorpay's documented error taxonomy — ₹1,20,850 at risk — run
+through both policies. Full report: [`docs/batch-measurement.md`](docs/batch-measurement.md),
+regenerated with `uv run python scripts/run_batch.py`.
 
-| Metric | Value |
+**Counted.** Nothing below needs to know whether anything recovered.
+
+| | Agent | Razorpay's documented retry | |
+|---|---:|---:|---|
+| Debit attempts scheduled | 217 | 900 | 683 fewer |
+| Attempts a retry provably cannot fix | 0 | 108 | 108 avoided |
+| Attempts inside NPCI restricted bands | 0 | 315 | 315 avoided |
+| Customer contacts | 56 | 0 | the baseline never contacts anyone |
+| Cases held for a human | 27 | 0 | the baseline has no such path |
+| Diagnoses requiring a model call | **0 of 300** | — | inference spend ₹0.00 |
+
+That last row is the architecture appearing as a count rather than a claim: every failure in
+Razorpay's documented taxonomy resolved deterministically, so inference cost nothing because
+nothing needed inferring.
+
+**Where the model is not optional.** 68 Hinglish and English replies through `z-ai/glm-5.3-flash`
+([`docs/reply-evaluation.md`](docs/reply-evaluation.md)):
+
+| | |
 |---|---|
-| Cases processed | — |
-| ₹ at risk | — |
-| Agent cohort recovery rate | — |
-| Holdout recovery rate | — |
-| **Net lift** | — |
-| Rules-table share of diagnoses | — |
-| Opt-out recall | — |
+| Parsed successfully | 67 of 68 |
+| `opt-out` recall | 1.00 |
+| `distress` recall | 1.00 |
+| `promise-to-pay` recall | 1.00 |
+| `cancellation-request` precision | 0.56 |
+| Cost per parse | about ₹0.01 |
+
+Recall is 1.00 on every intent where missing one causes harm. Precision is where it is weak, and
+the shell is what makes that survivable: cancellation needs 0.85 confidence before anything acts,
+and no reply in the corpus cleared it.
+
+**Not reported as measured:** rupees recovered. See [Measurement](#measurement).
 
 ## Running it
 
