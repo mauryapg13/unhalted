@@ -102,6 +102,16 @@ class Store:
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # Write-ahead logging: a reader no longer blocks the writer, and a
+        # crash mid-write leaves the database recoverable from the log rather
+        # than dependent on a rollback journal surviving.
+        if self.path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode = WAL")
+        # FULL is the default and is kept deliberately: every commit fsyncs
+        # before returning. A case that the agent believes it recorded must
+        # survive the power going out, because Razorpay will not redeliver
+        # forever and a lost case is money nobody chases.
+        self._conn.execute("PRAGMA synchronous = FULL")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 

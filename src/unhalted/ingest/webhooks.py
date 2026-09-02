@@ -98,10 +98,16 @@ async def razorpay_webhook(request: Request) -> dict[str, Any]:
     except UnsupportedEvent as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    case = handle_failure(store, signal)
-
+    # The signal is made durable before any work is done on it. Razorpay expects
+    # a prompt 2xx and retries anything slow, so a webhook that spends seconds
+    # in diagnosis is one they will send again — and if this process dies
+    # mid-diagnosis, the event should already be on disk rather than depending
+    # on that retry arriving.
+    case = store.open_case(signal)
     if event_id:
         store.mark_event(event_id, case.id, datetime.now(tz=windows.IST))
+
+    case = handle_failure(store, signal)
 
     return {"status": "accepted", "case_id": case.id, "state": case.state.value}
 
