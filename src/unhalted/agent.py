@@ -12,7 +12,7 @@ from datetime import datetime
 
 from unhalted.core.diagnose import diagnose
 from unhalted.models import AuditRecord, Case, CaseState, DiagnosisClass, FailureSignal
-from unhalted.shell import stops, windows
+from unhalted.shell import limits, stops, windows
 from unhalted.shell.scheduler import backoff_for, schedule_retry
 from unhalted.store import Store
 
@@ -86,6 +86,35 @@ def handle_failure(store: Store, signal: FailureSignal, *, now: datetime | None 
                 inputs={"class": diagnosis.klass.value},
                 rules_fired=["SILENT_RETRY_CANNOT_SUCCEED"],
                 outcome="needs an intervention a retry cannot provide",
+            )
+        )
+        return store.get_case(case.id) or case
+
+    # Before any retry is scheduled, the money has to be permissible. This is
+    # not the same question as whether the retry is well-timed, and it is asked
+    # first: a debit above the mandate's ceiling should never be scheduled at
+    # all, however good the window is.
+    limit = limits.check(
+        signal.amount_paise,
+        signal.method,
+        mandate_max_paise=signal.mandate_max_paise,
+    )
+    if not limit.may_attempt:
+        store.record(
+            AuditRecord(
+                case_id=case.id,
+                at=now,
+                decision_type="schedule",
+                action="retry refused on amount",
+                inputs={
+                    "amount_paise": signal.amount_paise,
+                    "method": signal.method,
+                    "mandate_max_paise": signal.mandate_max_paise,
+                    "outcome": limit.outcome.value,
+                },
+                rules_fired=[limit.code] if limit.code else [],
+                rule_version=limit.rule_version,
+                outcome=limit.reason,
             )
         )
         return store.get_case(case.id) or case

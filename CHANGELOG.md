@@ -33,6 +33,10 @@
   lands on that date instead of six hours after it.
 
 ### Fixed
+- The monetary ceilings are now enforced in the agent's path rather than only in their own tests.
+  `shell/limits.py` had twelve passing tests and no caller, so a debit above the card ceiling or
+  above the mandate's own `max_amount` would have been scheduled anyway.
+
 - Technical failures were scheduled for the same instant they failed, retrying into the same
   outage and burning one of the three attempts NPCI allows.
 

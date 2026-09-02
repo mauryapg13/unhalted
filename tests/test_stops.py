@@ -158,3 +158,69 @@ def test_cancelling_with_no_scope_is_refused(store: Store) -> None:
     """A cancel with neither scope would cancel everything for everyone."""
     with pytest.raises(ValueError, match="needs a customer_ref or a case_id"):
         store.cancel_pending("OOPS")
+
+
+# -- the ceilings are checked before a debit is scheduled, not merely defined --
+
+
+def big_signal(amount_paise: int, method: str = "card", mandate_max: int | None = None):
+    return FailureSignal(
+        payment_id=f"pay_BIG{amount_paise}",
+        customer_ref="cust_big",
+        amount_paise=amount_paise,
+        occurred_at=datetime(2026, 9, 1, 14, 0, tzinfo=IST),
+        source="test",
+        method=method,
+        mandate_max_paise=mandate_max,
+        error_reason="insufficient_funds",
+        error_source="customer",
+    )
+
+
+def test_a_debit_above_the_card_ceiling_is_never_scheduled(store: Store) -> None:
+    """The check has to run in the path, not only in its own tests."""
+    from unhalted.agent import handle_failure
+
+    case = handle_failure(store, big_signal(20_000 * 100), now=datetime(2026, 9, 1, 14, 0, tzinfo=IST))
+    kinds = [r.decision_type for r in store.timeline(case.id)]
+    schedule = [r for r in store.timeline(case.id) if r.decision_type == "schedule"]
+
+    assert kinds == ["ingest", "diagnosis", "schedule"]
+    assert schedule[0].action == "retry refused on amount"
+    assert schedule[0].rules_fired == ["LIMIT:WOULD_FAIL"]
+    assert "fails automatically" in schedule[0].outcome
+
+
+def test_a_debit_above_the_mandate_ceiling_is_never_scheduled(store: Store) -> None:
+    """Consent outranks feasibility: ₹500 is fine for a card and not fine here."""
+    from unhalted.agent import handle_failure
+
+    case = handle_failure(
+        store,
+        big_signal(500 * 100, mandate_max=200 * 100),
+        now=datetime(2026, 9, 1, 14, 0, tzinfo=IST),
+    )
+    schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
+    assert schedule.rules_fired == ["LIMIT:EXCEEDS_MANDATE"]
+    assert "never agreed" in schedule.outcome
+
+
+def test_a_upi_debit_needing_authorisation_is_not_retried_blindly(store: Store) -> None:
+    """It has not failed. Retrying it is the wrong response."""
+    from unhalted.agent import handle_failure
+
+    case = handle_failure(
+        store, big_signal(20_000 * 100, method="upi"),
+        now=datetime(2026, 9, 1, 14, 0, tzinfo=IST),
+    )
+    schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
+    assert schedule.rules_fired == ["LIMIT:NEEDS_ADDITIONAL_AUTH"]
+    assert "waiting for a person" in schedule.outcome
+
+
+def test_a_permissible_amount_still_schedules_a_retry(store: Store) -> None:
+    from unhalted.agent import handle_failure
+
+    case = handle_failure(store, big_signal(499 * 100), now=datetime(2026, 9, 1, 14, 0, tzinfo=IST))
+    schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
+    assert schedule.action.startswith("retry at")

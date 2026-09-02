@@ -78,6 +78,7 @@ def from_payment_failed(event: dict[str, Any]) -> FailureSignal:
         error_source=payment.get("error_source"),
         error_step=payment.get("error_step"),
         occurred_at=occurred_at,
+        token_id=payment.get("token_id"),
         source="razorpay:payment.failed",
         raw=payment,
     )

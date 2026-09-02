@@ -54,6 +54,15 @@ class FailureSignal(BaseModel):
     error_source: str | None = None
     error_step: str | None = None
     occurred_at: datetime
+    token_id: str | None = None
+    mandate_max_paise: int | None = Field(
+        default=None,
+        description=(
+            "The ceiling the customer agreed to when the mandate was created. "
+            "None when we have not fetched the token; the network ceilings still "
+            "apply, but the consent check cannot run and says so."
+        ),
+    )
     source: str = Field(description="Which ingest adapter produced this signal")
     raw: dict[str, Any] = Field(default_factory=dict)
 
