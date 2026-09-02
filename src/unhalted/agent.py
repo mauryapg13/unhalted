@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from unhalted.core.diagnose import diagnose
+from unhalted.core.diagnose import diagnose, needs_verification
 from unhalted.core.reply import parse as parse_reply
 from unhalted.models import (
     AuditRecord,
@@ -20,7 +20,7 @@ from unhalted.models import (
     FailureSignal,
     ParsedReply,
 )
-from unhalted.shell import limits, replies, stops, windows
+from unhalted.shell import limits, replies, stops, verify, windows
 from unhalted.shell.scheduler import backoff_for, schedule_retry
 from unhalted.store import Store
 
@@ -31,7 +31,13 @@ RETRYABLE = {
 }
 
 
-def handle_failure(store: Store, signal: FailureSignal, *, now: datetime | None = None) -> Case:
+def handle_failure(
+    store: Store,
+    signal: FailureSignal,
+    *,
+    verifier: verify.Verifier | None = None,
+    now: datetime | None = None,
+) -> Case:
     """Take one failed debit from signal to scheduled next action."""
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
     case = store.open_case(signal)
@@ -53,6 +59,27 @@ def handle_failure(store: Store, signal: FailureSignal, *, now: datetime | None 
             outcome=case.id,
         )
     )
+
+    # Before classifying, ask whether this is even a failure. Razorpay documents
+    # a capture following a failure on the same transaction, and retrying such a
+    # case debits somebody who has already paid — a worse outcome than never
+    # recovering.
+    pending_check = needs_verification(signal)
+    if pending_check is not None:
+        store.record(
+            AuditRecord(
+                case_id=case.id,
+                at=now,
+                decision_type="verification",
+                action="check before deciding",
+                inputs={"check": pending_check.check, "why": pending_check.reason},
+                rules_fired=[pending_check.rule],
+                outcome="no retry is scheduled until this resolves",
+            )
+        )
+        settled = _verify(store, case, signal, pending_check, verifier, now)
+        if settled:
+            return store.get_case(case.id) or case
 
     diagnosis = diagnose(signal)
     store.record_diagnosis(case.id, diagnosis, now)
@@ -306,3 +333,73 @@ def handle_reply(
         )
 
     return parsed, outcome
+
+
+def _verify(
+    store: Store,
+    case: Case,
+    signal: FailureSignal,
+    request,
+    verifier: verify.Verifier | None,
+    now: datetime,
+) -> bool:
+    """Perform a verification. Returns True when the case is settled by it.
+
+    A verification that cannot be performed holds the case. Treating "could not
+    check" as "not paid" is precisely the assumption that double-debits
+    somebody, so it is never made.
+    """
+    if verifier is None:
+        store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="stop", action="held for a human",
+                inputs={"check": request.check},
+                rules_fired=["VERIFICATION_UNAVAILABLE"],
+                outcome=(
+                    "no verifier is configured, so it is unknown whether this order was "
+                    "already paid; assuming it was not is how a customer gets charged twice"
+                ),
+            )
+        )
+        return True
+
+    try:
+        result = verifier.order_settled(signal.order_id or "")
+    except verify.VerificationUnavailable as e:
+        store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="stop", action="held for a human",
+                inputs={"check": request.check, "error": str(e)},
+                rules_fired=["VERIFICATION_UNAVAILABLE"],
+                outcome="the check could not be performed; not-checked is not the same as not-paid",
+            )
+        )
+        return True
+
+    if result.already_paid:
+        store.set_state(case.id, CaseState.CLOSED_FALSE_FAILURE)
+        store.cancel_pending("FALSE_FAILURE", case_id=case.id)
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="stop", action="closed as a false failure",
+                inputs={"checked": result.checked},
+                rules_fired=["FALSE_FAILURE"],
+                outcome=(
+                    f"{result.detail}. No retry ever fires, and this is not counted as a "
+                    "recovery — the money was never lost"
+                ),
+            )
+        )
+        return True
+
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=now, decision_type="verification", action="confirmed unpaid",
+            inputs={"checked": result.checked},
+            rules_fired=["VERIFIED_UNPAID"],
+            outcome=f"{result.detail}; recovery may proceed",
+        )
+    )
+    return False
