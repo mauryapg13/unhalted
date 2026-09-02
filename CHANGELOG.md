@@ -13,6 +13,13 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- Diagnosis can now decline to decide. Where Razorpay documents that a failure might not be one —
+  a `payment.failed` followed by a capture on the same transaction, when the customer retries in
+  their own UPI app — the agent verifies whether the order was already paid before scheduling
+  anything. A paid order closes as a false failure and is reported separately from recoveries,
+  because that money was never lost. A check that cannot be performed holds the case: not-checked
+  is not the same as not-paid, and assuming otherwise is how somebody gets charged twice.
+
 - Reply understanding. `core/reply.py` reads free text into a closed set of intents with an
   evidence span quoting the words that justify each, and `shell/replies.py` decides what that
   changes — precedence and thresholds live there because both are policy. The thresholds are
