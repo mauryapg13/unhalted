@@ -13,6 +13,32 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- Reply understanding. `core/reply.py` reads free text into a closed set of intents with an
+  evidence span quoting the words that justify each, and `shell/replies.py` decides what that
+  changes — precedence and thresholds live there because both are policy. The thresholds are
+  deliberately asymmetric: 0.50 for protective intents, 0.70 for anything that moves money, 0.85
+  before acting on a cancellation, because missing an opt-out and inventing a cancellation cost
+  very different things.
+- `agent.handle_reply` takes a reply from words to consequence and records all of it. Nothing
+  automated may remain scheduled on a case a person now owns — a customer who asks to cancel must
+  not be charged while somebody actions it.
+- A labelled corpus of 68 replies, 13 verbatim from the specification, with
+  `scripts/evaluate_replies.py` reporting precision and recall per intent **including the
+  failures**, and separating reliability from accuracy so an endpoint fault is not read as the
+  model misreading.
+- `scripts/session.py` and `scripts/review.py`: a terminal for the customer and a terminal for the
+  reviewer, sharing a database. Held cases reach the queue, nothing expires into a yes, and every
+  human decision is attributed by name.
+- `shell/notify.py`, the notifier seam. Contact hours gate above the transport, so a console and a
+  phone are governed identically.
+
+### Fixed
+- Disputes and chargebacks now hold the case for a human. Halting without holding abandons the
+  case silently: the customer's claim about their money never gets answered.
+- Cases are durable before anything is done with them. The store uses write-ahead logging, commits
+  fsync before returning, and the webhook persists the signal before diagnosis — Razorpay retries
+  anything slow, and a process that dies mid-diagnosis should not depend on that retry arriving.
+
 - A third real captured payment, and the finding that produced it: Razorpay's error-scenario cards
   do not yield their documented reasons on this account through either checkout surface. Tested on
   the hosted payment-link page and on Standard Checkout, the widget the cards are documented for.

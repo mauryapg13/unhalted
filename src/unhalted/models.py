@@ -31,6 +31,32 @@ class DiagnosisSource(str, enum.Enum):
     MODEL = "model"
 
 
+class Intent(str, enum.Enum):
+    """What a customer reply is doing.
+
+    A closed set. The model chooses from these or returns `unknown`; it cannot
+    invent an intent, because every one of these has a coded consequence and an
+    intent with no consequence would be a silent no-op.
+    """
+
+    PROMISE_TO_PAY = "promise-to-pay"
+    DISPUTE = "dispute"
+    SET_OFF_REQUEST = "set-off-request"
+    OPT_OUT = "opt-out"
+    CANCELLATION_REQUEST = "cancellation-request"
+    SERVICE_COMPLAINT = "service-complaint"
+    DISTRESS = "distress"
+    CHANNEL_PREFERENCE = "channel-preference"
+    UNKNOWN = "unknown"
+
+
+class Sentiment(str, enum.Enum):
+    COOPERATIVE = "cooperative"
+    NEUTRAL = "neutral"
+    FRUSTRATED = "frustrated"
+    DISTRESS = "distress"
+
+
 class CaseState(str, enum.Enum):
     OPEN = "open"
     HELD_FOR_HUMAN = "held-for-human"
@@ -135,4 +161,53 @@ class AuditRecord(BaseModel):
     rule_version: str | None = None
     model_name: str | None = None
     confidence: float | None = None
+    #: Who decided, when a person did. The specification requires this on every
+    #: human gate, because a decision nobody is named for is a decision nobody
+    #: is answerable for.
+    human_actor: str | None = None
     outcome: str | None = None
+
+
+class DetectedIntent(BaseModel):
+    """One intent found in a reply, with the words that justify it."""
+
+    type: Intent
+    confidence: float
+    #: The span of the reply supporting this intent, quoted. Required, because a
+    #: reviewer needs to see why — and because a model asked to quote its
+    #: evidence asserts less that the text does not say.
+    evidence: str = ""
+
+
+class ParsedReply(BaseModel):
+    """A customer reply, read into structure. Nothing here has been acted on.
+
+    `payment_date_raw` is deliberately a string. The model proposes a date; the
+    shell decides whether it is one. A model that emits "31st February" must be
+    refused by code that checks, not accepted by a type that happened to parse.
+    """
+
+    raw: str
+    language: str = "unknown"
+    intents: list[DetectedIntent] = Field(default_factory=list)
+    payment_date_raw: str | None = None
+    condition: str | None = None
+    sentiment: Sentiment = Sentiment.NEUTRAL
+    model_name: str | None = None
+    prompt_hash: str | None = None
+    #: How many model calls this parse took. More than one means the endpoint
+    #: returned nothing usable and was retried — a reliability fact, distinct
+    #: from whether the reading was right.
+    attempts: int = 0
+    #: Set when the model could not be reached or returned nothing usable. The
+    #: reply is preserved and queued; no intent is inferred from silence.
+    failed: bool = False
+    failure_reason: str | None = None
+
+    def confidence_for(self, intent: Intent) -> float:
+        return max((i.confidence for i in self.intents if i.type is intent), default=0.0)
+
+    def has(self, intent: Intent, *, at_least: float = 0.0) -> bool:
+        return self.confidence_for(intent) >= at_least and any(
+            i.type is intent for i in self.intents
+        )

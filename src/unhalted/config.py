@@ -49,3 +49,15 @@ def webhook_secret() -> str:
 
 def database_path() -> str:
     return os.environ.get("UNHALTED_DB", "unhalted.db")
+
+
+def model_name() -> str:
+    return os.environ.get("UNHALTED_MODEL", "")
+
+
+def model_api_key() -> str:
+    return os.environ.get("OPENROUTER_API_KEY", "")
+
+
+def model_base_url() -> str:
+    return os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
