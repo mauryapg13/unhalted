@@ -144,6 +144,16 @@ uv sync --all-extras
 uv run pytest
 ```
 
+Read what the agent did:
+
+```bash
+uv run unhalted cases              # what is open, held, closed
+uv run unhalted case CASE-8EF53CCD # one case, end to end
+uv run unhalted queue              # what is waiting on a person
+uv run unhalted report             # the batch measurement
+uv run unhalted capabilities       # what this deployment can actually do
+```
+
 See a failed payment go through end to end — a forged webhook rejected, a real one accepted,
 a redelivery recognised, and the resulting case timeline:
 

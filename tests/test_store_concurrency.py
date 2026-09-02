@@ -98,7 +98,7 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
     path = str(tmp_path / "durable.db")
     store = Store(path)
     case = handle_failure(store, signal(99))
-    store.schedule_action(case.id, case.customer_ref, "retry", None, case.opened_at)
+    store.schedule_action(case.id, case.customer_ref, "nudge", None, case.opened_at)
     store.close()
 
     reopened = Store(path)
@@ -108,6 +108,7 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
         assert recovered.id == case.id
         assert len(reopened.signals(case.id)) == 1
         assert len(reopened.timeline(case.id)) == 4
-        assert len(reopened.pending_actions(case_id=case.id)) == 1
+        # the retry handle_failure scheduled, plus the nudge added above
+        assert len(reopened.pending_actions(case_id=case.id)) == 2
     finally:
         reopened.close()

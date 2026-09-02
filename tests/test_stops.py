@@ -258,3 +258,26 @@ def test_a_dispute_holds_the_case_for_a_person(store: Store) -> None:
     case = store.open_case(signal("pay_DISP", "cust_disp"))
     apply_stop(store, "DISPUTE", case_id=case.id, customer_ref="cust_disp", now=now)
     assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN
+
+
+def test_a_revocation_cancels_the_retry_the_agent_scheduled_itself(store: Store) -> None:
+    """Found by the CLI printing "pending 0" beside a scheduled retry.
+
+    The audit trail said a retry was scheduled and nothing tracked it as
+    pending, so a stop had nothing to cancel. A customer revoking their mandate
+    would have been charged anyway. The audit records what was decided; the
+    pending table is what makes it cancellable, and both are needed.
+    """
+    from unhalted.agent import handle_failure
+
+    now = datetime(2026, 9, 3, 14, 0, tzinfo=IST)
+    case = handle_failure(store, signal("pay_REVOKE", "cust_revoke"), now=now)
+
+    pending = store.pending_actions(case_id=case.id)
+    assert [a["kind"] for a in pending] == ["retry"], "the scheduled retry must be trackable"
+
+    cancelled = apply_stop(
+        store, "REVOKED", case_id=case.id, customer_ref="cust_revoke", now=now
+    )
+    assert cancelled == 1
+    assert store.pending_actions(case_id=case.id) == []

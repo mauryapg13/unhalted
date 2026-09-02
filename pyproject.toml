@@ -12,6 +12,9 @@ dependencies = [
     "razorpay>=2.0",
 ]
 
+[project.scripts]
+unhalted = "unhalted.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "pytest-bdd>=8.1", "ruff>=0.7"]
 
