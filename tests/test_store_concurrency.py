@@ -64,3 +64,50 @@ def test_the_same_payment_arriving_concurrently_opens_exactly_one_case(tmp_path)
         assert len(store.all_cases()) == 1
     finally:
         store.close()
+
+
+# -- durability ---------------------------------------------------------------
+
+
+def test_the_store_uses_write_ahead_logging(tmp_path) -> None:
+    """A reader must not block the writer, and a crash mid-write must leave the
+    database recoverable from the log rather than from a rollback journal."""
+    store = Store(str(tmp_path / "wal.db"))
+    try:
+        with store._read() as conn:
+            assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        store.close()
+
+
+def test_every_commit_reaches_the_disk_before_returning(tmp_path) -> None:
+    """synchronous=FULL. A case the agent believes it recorded has to survive
+    the power going out — Razorpay does not redeliver forever, and a lost case
+    is money nobody chases."""
+    store = Store(str(tmp_path / "sync.db"))
+    try:
+        with store._read() as conn:
+            assert conn.execute("PRAGMA synchronous").fetchone()[0] == 2
+    finally:
+        store.close()
+
+
+def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
+    """The closest thing to a crash test we can run in-process: write, close
+    without ceremony, reopen, and expect everything to be there."""
+    path = str(tmp_path / "durable.db")
+    store = Store(path)
+    case = handle_failure(store, signal(99))
+    store.schedule_action(case.id, case.customer_ref, "retry", None, case.opened_at)
+    store.close()
+
+    reopened = Store(path)
+    try:
+        recovered = reopened.get_case(case.id)
+        assert recovered is not None
+        assert recovered.id == case.id
+        assert len(reopened.signals(case.id)) == 1
+        assert len(reopened.timeline(case.id)) == 3
+        assert len(reopened.pending_actions(case_id=case.id)) == 1
+    finally:
+        reopened.close()

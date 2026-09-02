@@ -169,3 +169,32 @@ check cannot run, and the audit record shows which of the two was evaluated.
 
 **The lesson:** "the tests pass" is not "the requirement is met". The next time a checkpoint says
 a rule is enforced, grep for the caller before saying it is done.
+
+---
+
+### The hooks stopped me committing wrongly; nothing stopped me not committing
+**Date:** 2026-09-02
+
+**What happened:** The whole of C6 — the parser, the policy layer, the labelled corpus, the
+evaluation, both terminals — sat as sixteen uncommitted files with **zero commits** on the branch.
+A machine failure would have lost all of it. Noticed only when asked directly whether I was
+following the repository's own commands.
+
+**Why:** The mechanisms added on 2026-08-31 all fire *at* a commit: the pre-commit hook refuses
+`main`, the commit-msg hook refuses a missing changelog, CI refuses a pull request without one.
+Every one of them is a gate on the act of committing. None of them can observe the absence of
+commits, so a long stretch of work with no commit at all passes through untouched.
+
+It is the same shape as the ceiling check with no caller: the guard was correct and was never
+reached.
+
+**What changed:** Nothing mechanical, and that is the honest part. A hook cannot fire on an event
+that does not happen. What would catch it is a periodic check — uncommitted files older than an
+hour, or a branch with no commits and a dirty tree — and that is a background job, not a hook.
+
+Recorded here rather than fixed, because a fix invented under embarrassment is worse than a
+limitation written down. The working rule for now is that a checkpoint's work gets committed when
+the checkpoint's tests pass, not when the checkpoint is finished.
+
+**The lesson:** enforcement covers the paths you thought of. The first drift was doing the wrong
+thing, and a hook catches that. The second was doing nothing, and nothing catches that.

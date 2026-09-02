@@ -182,3 +182,26 @@ def test_a_novel_error_reason_is_held_for_a_human_not_retried(client) -> None:
     assert detail["diagnosis"]["klass"] == DiagnosisClass.UNKNOWN.value
     assert detail["case"]["state"] == CaseState.HELD_FOR_HUMAN.value
     assert "schedule" not in [r["decision_type"] for r in detail["timeline"]]
+
+
+def test_the_signal_is_durable_before_any_processing_happens(client) -> None:
+    """Razorpay retries anything slow, so a webhook that spends seconds in
+    diagnosis will be sent again. The event should already be on disk by then
+    rather than depending on that retry arriving at all."""
+    import unhalted.ingest.webhooks as wh
+
+    seen: dict[str, bool] = {}
+    real = wh.handle_failure
+
+    def slow(store, signal, **kwargs):
+        # By the time any processing runs, the case must already exist.
+        seen["case_existed"] = store.case_for_payment(signal.payment_id) is not None
+        return real(store, signal, **kwargs)
+
+    wh.handle_failure = slow
+    try:
+        r = post(client, load("payment_failed_netbanking"))
+        assert r.status_code == 200
+        assert seen["case_existed"], "the signal was not persisted before processing"
+    finally:
+        wh.handle_failure = real
