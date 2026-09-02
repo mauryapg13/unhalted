@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+- Recorded, not yet fixed: an exploratory pass against the live endpoint and the real Razorpay
+  account found five defects the suite does not cover — reply truncation at `max_tokens` (#22),
+  confidence rising when the payment method is unknown (#23), currency recorded and never read
+  (#24), unvalidated evidence spans (#25), and inference spend that no code path can report (#26).
+  `BREAKAGE.md` carries the first, which also corrects an earlier entry's conclusion.
+
 ### Added
 - `unhalted compare <id>` — the same case under both policies, side by side. The agent's column is
   read off the audit trail and Razorpay's is `measure/baseline.py` replaying their documented

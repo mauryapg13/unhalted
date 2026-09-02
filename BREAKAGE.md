@@ -242,3 +242,44 @@ than last.
 **Written late, and worth saying so.** These were fixed as they were found, but logged here in one
 pass afterwards rather than at the moment each broke — a smaller version of the drift recorded
 above. The pattern only became visible once there were three of them.
+
+---
+
+### The null responses were never the provider's fault
+**Date:** 2026-09-03
+
+**What happened:** An exploratory pass over the reply parser — adversarial inputs, not the labelled
+corpus — found that replies carrying more than one intent fail to parse **two times in three**. The
+specification's own three-intent example is one of them. A plain promise never fails.
+
+**Why:** `max_tokens: 1200`. `z-ai/glm-5.3-flash` is a reasoning model; it spends the completion
+budget thinking before it emits anything. When the budget runs out first, the response arrives with
+`finish_reason: "length"` and a `content` field that is either truncated mid-JSON or **empty**.
+Measured at three runs per reply, temperature 0: 1 of 3 parse at 1200, 3 of 3 at 4000, where the
+model stops on its own at about 971 tokens.
+
+**What this corrects.** The entry above — *The model endpoint returned nothing, twice, for no
+visible reason* — concluded that the second occurrence was OpenRouter routing one model across
+providers that behave differently. That conclusion was wrong, or at best incomplete. The symptom
+was the same one measured here, and the response said so on every call: `finish_reason` was
+`length`, and nothing in the code has ever read it.
+
+The first occurrence in that entry was diagnosed correctly — `max_tokens: 32`, too small. Having
+found the cause once, I raised the number until the symptom went away and attributed the rest to
+the provider. 1200 was large enough for the replies being tested that day and too small for the
+ones the product is for.
+
+**What changed:** Nothing yet — raised as issue #22 rather than fixed mid-investigation. The fix is
+a larger budget, reading `finish_reason`, and not retrying a `length` failure, which at temperature
+0 reproduces exactly and only triples the spend. `docs/reply-evaluation.md`'s 1-in-68 failure rate
+was measured on a corpus that is mostly simple replies and understates this.
+
+**The lesson:** a cause found is not the cause. The first `max_tokens` bug made the second one
+invisible, because the fix for one was the mask for the other — and "intermittent, provider-side"
+is a comfortable explanation that costs nothing to believe and closes an investigation. The
+response body carried the answer the whole time in a field nobody had thought to look at.
+
+**The wider lesson, and the reason this pass happened at all:** every bug in this file was found by
+using the system, and every one of these was found by using it *the way somebody else would*. The
+suite tests the replies we wrote. Nobody had sent it three emoji, a 6,000-character message, pure
+Devanagari, or a reply that quotes the parser's own output schema back at it.
