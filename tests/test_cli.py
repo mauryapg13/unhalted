@@ -1,0 +1,124 @@
+"""The command line, which is how anybody reads what the agent did.
+
+Reading the audit trail used to mean writing a query. These assert that it no
+longer does, and that what prints is the same data the store holds rather than a
+prettier summary of it.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+import pytest
+
+from unhalted import cli
+from unhalted.agent import apply_stop, handle_failure
+from unhalted.models import FailureSignal
+from unhalted.shell.windows import IST
+from unhalted.store import Store
+
+NOW = datetime(2026, 9, 3, 11, 30, tzinfo=IST)
+
+
+def signal(payment_id="pay_CLI", reason="insufficient_funds", customer="cust_cli"):
+    return FailureSignal(
+        payment_id=payment_id, customer_ref=customer, amount_paise=49900,
+        occurred_at=NOW, source="test", method="card",
+        error_reason=reason, error_source="customer",
+    )
+
+
+@pytest.fixture
+def db(tmp_path):
+    path = str(tmp_path / "cli.db")
+    store = Store(path)
+    case = handle_failure(store, signal(), now=NOW)
+    store.close()
+    return path, case.id
+
+
+def run(args, capsys) -> str:
+    cli.main(args)
+    return capsys.readouterr().out
+
+
+def test_a_case_prints_its_whole_timeline(db, capsys) -> None:
+    path, case_id = db
+    out = run(["--db", path, "case", case_id], capsys)
+
+    for expected in ("INGEST", "DIAGNOSIS", "ESCALATION", "SCHEDULE"):
+        assert expected in out, f"{expected} missing from the timeline"
+    assert "recoverable-balance" in out
+    assert "razorpay-docs@" in out, "the taxonomy version must be visible"
+    assert "pay_CLI" in out
+
+
+def test_a_case_can_be_named_by_prefix(db, capsys) -> None:
+    """The queue prints ids; typing one should be enough."""
+    path, case_id = db
+    short = case_id.removeprefix("CASE-")[:4]
+    assert case_id in run(["--db", path, "case", short], capsys)
+
+
+def test_an_unknown_case_says_so_and_fails(db, capsys) -> None:
+    path, _ = db
+    assert cli.main(["--db", path, "case", "CASE-NOPE"]) == 1
+    assert "no case matching" in capsys.readouterr().out
+
+
+def test_the_rule_that_fired_is_shown_not_just_the_outcome(db, capsys) -> None:
+    """A decision without its rule is not auditable."""
+    path, case_id = db
+    out = run(["--db", path, "case", case_id], capsys)
+    assert "WINDOW_VIOLATION" in out or "npci-" in out
+
+
+def test_pending_actions_are_shown(db, capsys) -> None:
+    """The line that exposed a scheduled retry nothing could cancel."""
+    path, case_id = db
+    out = run(["--db", path, "case", case_id], capsys)
+    assert "pending" in out
+    assert "retry" in out
+
+
+def test_listing_cases_shows_state_and_diagnosis(db, capsys) -> None:
+    path, case_id = db
+    out = run(["--db", path, "cases"], capsys)
+    assert case_id in out and "open" in out and "recoverable-balance" in out
+
+
+def test_cases_can_be_filtered_by_state(db, capsys) -> None:
+    path, _ = db
+    assert "no cases in state" in run(["--db", path, "cases", "--state", "recovered"], capsys)
+
+
+def test_an_empty_queue_says_nothing_is_waiting(db, capsys) -> None:
+    path, _ = db
+    assert "nothing is waiting" in run(["--db", path, "queue"], capsys)
+
+
+def test_the_queue_shows_held_cases_and_why(tmp_path, capsys) -> None:
+    path = str(tmp_path / "q.db")
+    store = Store(path)
+    case = handle_failure(store, signal(reason="payment_risk_check_failed"), now=NOW)
+    apply_stop(store, "DISPUTE", case_id=case.id, customer_ref=case.customer_ref, now=NOW)
+    store.close()
+
+    out = run(["--db", path, "queue"], capsys)
+    assert case.id in out
+    assert "DISPUTE" in out
+
+
+def test_capabilities_reports_what_is_absent_not_only_what_works(capsys) -> None:
+    """An absence should be inspectable rather than a silent hole."""
+    out = run(["capabilities"], capsys)
+    assert "UPI Autopay transport: absent" in out
+    assert "taxonomy" in out.lower()
+
+
+def test_verbose_shows_inputs_that_the_default_hides(db, capsys) -> None:
+    path, case_id = db
+    plain = run(["--db", path, "case", case_id], capsys)
+    verbose = run(["--db", path, "case", case_id, "-v"], capsys)
+    assert len(verbose) > len(plain)
+    assert "error_reason" in verbose

@@ -13,6 +13,18 @@
   where the plumbing is written anyway, and human-queue preparation against C7.
 
 ### Added
+- `unhalted` on the command line: `case` prints one case end to end with the rules that fired and
+  the taxonomy version that produced the diagnosis, `cases` and `queue` list what is open and what
+  is waiting on a person, `report` prints the batch measurement, and `capabilities` reports what
+  this deployment cannot do as well as what it can.
+- Decisions are logged as they happen, not only reconstructable afterwards. Every decision passes
+  through one place, so that is where the log line is written.
+
+### Fixed
+- A scheduled retry is now recorded as pending work rather than only as a line in the audit trail.
+  It was not cancellable, so a customer who revoked their mandate would have been charged anyway.
+  Found by the CLI printing `pending 0` beside a scheduled retry on its first real use.
+
 - Batch measurement. 300 generated failures drawn from Razorpay's published error taxonomy, run
   through both the agent and Razorpay's own documented behaviour — three automatic retries on
   consecutive days, no diagnosis, no contact. The report is split so a reader cannot confuse the

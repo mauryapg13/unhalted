@@ -47,8 +47,10 @@ def case(store):
         error_source="customer",
     )
     c = agent.handle_failure(store, signal, now=NOW)
-    store.schedule_action(c.id, c.customer_ref, "retry", NOW, NOW)
+    # handle_failure schedules the retry itself; the nudges are added here so
+    # a stop has several things of different kinds to cancel at once.
     store.schedule_action(c.id, c.customer_ref, "nudge", NOW, NOW)
+    store.schedule_action(c.id, c.customer_ref, "voice-callback", NOW, NOW)
     return c
 
 
@@ -73,7 +75,8 @@ def test_a_cancellation_request_cancels_the_pending_retry(store, case, monkeypat
     just asked to cancel while a person gets round to actioning it."""
     monkeypatch.setattr(agent, "parse_reply", fake_parse((Intent.CANCELLATION_REQUEST, 0.97)))
 
-    assert len(store.pending_actions(case_id=case.id)) == 2
+    before = store.pending_actions(case_id=case.id)
+    assert {a["kind"] for a in before} == {"retry", "nudge", "voice-callback"}
     agent.handle_reply(store, case, "cancel it please", now=NOW)
 
     assert store.pending_actions(case_id=case.id) == []
@@ -115,11 +118,12 @@ def test_a_promise_with_no_usable_date_changes_no_timing(store, case, monkeypatc
         agent, "parse_reply",
         fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw="2026-02-31"),
     )
+    before = store.pending_actions(case_id=case.id)
     _, outcome = agent.handle_reply(store, case, "31 feb ko", now=NOW)
 
     assert outcome.realign_to is None
     assert "PROMISE_WITHOUT_USABLE_DATE" in outcome.rules_fired
-    assert len(store.pending_actions(case_id=case.id)) == 2, "nothing should have moved"
+    assert len(store.pending_actions(case_id=case.id)) == len(before), "nothing should have moved"
 
 
 def test_every_reply_is_written_to_the_audit_trail(store, case, monkeypatch) -> None:

@@ -201,6 +201,16 @@ def handle_failure(
     wait = backoff_for(diagnosis.klass, case.retry_count)
     decision = schedule_retry(now + wait, retry_count=case.retry_count, now=now)
 
+    # Recorded as pending work, not only as a line in the audit trail. A
+    # scheduled retry that nothing tracks is one a stop rule cannot cancel: a
+    # revocation would leave it armed and the customer would be charged after
+    # withdrawing permission. The audit says what was decided; the pending table
+    # is what makes it cancellable.
+    if decision.scheduled_for:
+        store.schedule_action(
+            case.id, case.customer_ref, "retry", decision.scheduled_for, now
+        )
+
     store.record(
         AuditRecord(
             case_id=case.id,

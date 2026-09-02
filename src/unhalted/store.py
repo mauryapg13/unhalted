@@ -16,6 +16,7 @@ low volume. It is not a reason to reach for a server database.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import uuid
@@ -27,6 +28,8 @@ from typing import Any
 
 from unhalted import config
 from unhalted.models import AuditRecord, Case, CaseState, Diagnosis, FailureSignal
+
+_log = logging.getLogger("unhalted.decisions")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cases (
@@ -255,6 +258,20 @@ class Store:
         return Diagnosis.model_validate_json(row["payload"]) if row else None
 
     def record(self, record: AuditRecord) -> None:
+        """Write one decision, and log it as it happens.
+
+        The specification asks for decisions to be observable as they are made,
+        not only reconstructable afterwards. Every decision passes through here,
+        so this is the one place that is true of.
+        """
+        _log.info(
+            "case=%s %s: %s%s%s",
+            record.case_id,
+            record.decision_type,
+            record.action,
+            f" rules={','.join(record.rules_fired)}" if record.rules_fired else "",
+            f" conf={record.confidence}" if record.confidence is not None else "",
+        )
         with self._tx() as conn:
             conn.execute(
                 "INSERT INTO audit (case_id, at, decision_type, action, payload) VALUES (?,?,?,?,?)",
