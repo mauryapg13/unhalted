@@ -9,12 +9,14 @@ either is durable or quietly is not.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
 from unhalted.agent import apply_stop, handle_failure
 from unhalted.models import CaseState, FailureSignal
-from unhalted.runner import LEASE, Outcome, run_due
+from unhalted.runner import LEASE, Outcome, execute_nudge, run_due
+from unhalted.shell import paylink
 from unhalted.shell.windows import IST
 from unhalted.store import Store
 
@@ -203,6 +205,40 @@ def test_a_nudge_outside_contact_hours_is_deferred_not_failed(store, case) -> No
     nudge = next(a for a in store.pending_actions() if a["kind"] == "nudge")
     assert nudge["state"] == "pending", "it should wait, not fail"
     assert any("not sent" in line for line in report.lines)
+
+
+def test_a_deferred_nudge_never_reaches_the_payment_link_call(store, case) -> None:
+    """A link is a real network call; one deferred for contact hours must not
+    spend it on a message that is not going out this pass."""
+    store.schedule_action(case.id, case.customer_ref, "nudge", NOW, NOW)
+    night = datetime(2026, 9, 5, 2, 0, tzinfo=IST)
+    with patch.object(paylink, "create_payment_link") as mocked:
+        run_due(store, now=night)
+    mocked.assert_not_called()
+
+
+def test_a_sent_nudge_carries_the_pay_link_when_one_is_generated(store, case) -> None:
+    action_id = store.schedule_action(case.id, case.customer_ref, "nudge", NOW, NOW)
+    action = store.action(action_id)
+    with patch.object(
+        paylink, "create_payment_link",
+        return_value=paylink.PaymentLink(url="https://rzp.io/i/AbC123", id="plink_X",
+                                         status="created"),
+    ) as mocked:
+        outcome = execute_nudge(store, action, NOW)
+
+    mocked.assert_called_once()
+    assert outcome.state == "done"
+
+
+def test_a_nudge_still_sends_when_the_link_cannot_be_generated(store, case) -> None:
+    """No adapter for the link is not a reason to withhold the message itself."""
+    action_id = store.schedule_action(case.id, case.customer_ref, "nudge", NOW, NOW)
+    action = store.action(action_id)
+    with patch.object(paylink, "create_payment_link", return_value=None):
+        outcome = execute_nudge(store, action, NOW)
+
+    assert outcome.state == "done"
 
 
 # -- the audit trail ---------------------------------------------------------

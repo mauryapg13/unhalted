@@ -27,8 +27,8 @@ from unhalted import clock, config, tui
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
-from unhalted.shell import windows
-from unhalted.shell.notify import ConsoleNotifier, Message, deliver
+from unhalted.shell import paylink, windows
+from unhalted.shell.notify import ConsoleNotifier, Message, deliver, nudge_body
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent
@@ -75,15 +75,6 @@ def real_signal(store: Store):
     return from_payment_failed(
         {"event": "payment.failed", "payload": {"payment": {"entity": payment}},
          "created_at": payment.get("created_at")}
-    )
-
-
-def nudge_body(amount_rupees: float, when: str) -> str:
-    """A plain factual message. C7 replaces this with drafted, linted copy."""
-    return (
-        f"Hi — your {MERCHANT} payment of Rs {amount_rupees:.0f} didn't go through.\n"
-        f"We'll try again on {when}. Reply here if that doesn't suit.\n"
-        f"Reply STOP to opt out of these messages."
     )
 
 
@@ -141,9 +132,18 @@ def main() -> int:
     )
 
     rule("3. The agent contacts the customer")
+    link = paylink.create_payment_link(
+        amount_paise=signal.amount_paise, description=f"payment retry for {case.id}",
+    )
+    if link:
+        print(f"  {DIM}pay link generated: {link.url}{RESET}")
+    else:
+        print(f"  {DIM}no pay link (RAZORPAY_KEY_ID/SECRET not configured, or the "
+              f"request failed) — the nudge goes out without one{RESET}")
     message = Message(
         customer_ref=signal.customer_ref,
-        body=nudge_body(signal.amount_rupees, when),
+        body=nudge_body(signal.amount_rupees, merchant=MERCHANT, when=when,
+                        pay_link=link.url if link else None),
         case_id=case.id,
     )
     store.schedule_action(case.id, signal.customer_ref, "nudge", now, now)

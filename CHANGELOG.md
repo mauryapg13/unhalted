@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- A nudge now carries a real, payable Razorpay Payment Link instead of asking the customer to
+  reply. The escalation ladder already priced this — rung 2 is "message with a pay link", rung 3 is
+  "re-authorisation link" — but no code generated one; a customer whose card had expired had nothing
+  to do but wait on a retry that could not succeed. `shell/paylink.py` calls Razorpay's documented
+  `POST /v1/payment_links` (verified against `api/payments/payment-links/create-standard.md`, not
+  assumed) with `notify` both off, since we deliver the message ourselves. A link that fails to
+  generate — no key configured, Razorpay refuses, the network is down — does not hold the nudge; it
+  goes out without one, logged, not raised. The network call itself is deferred until after the
+  contact-hours check, so a nudge already known to be deferred does not spend one for nothing.
+  `nudge_body` is now shared between the customer terminal and the runner, replacing two
+  independently hand-rolled message strings that had already drifted apart.
+
 ### Fixed
 - Approving or reclassifying a held case did not resume anything. `record_decision` only flipped
   the case's state; nothing scheduled the retry it had been blocking, so an approved case sat

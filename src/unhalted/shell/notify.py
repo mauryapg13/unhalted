@@ -19,6 +19,33 @@ from typing import Protocol
 from unhalted.shell import windows
 
 
+def nudge_body(
+    amount_rupees: float, *, merchant: str = "", when: str = "", pay_link: str | None = None,
+) -> str:
+    """The plain, factual message a nudge carries. Shared by the customer
+    terminal and the real runner so the two do not silently drift into two
+    different messages for the same event — C7 drafts and lints a warmer
+    version of this; this is what goes out when that path has nothing, or has
+    not been reached at all.
+
+    `pay_link` is a real, payable link when one was generated (see
+    `shell.paylink`) — the ladder prices this rung as the answer for someone
+    who would rather pay from a different account than wait on a retry of the
+    one that just failed. Its absence is not an error: a nudge is not worth
+    holding over a link that failed to generate.
+    """
+    who = f"{merchant} " if merchant else ""
+    lines = [f"Hi — your {who}payment of Rs {amount_rupees:.0f} didn't go through."]
+    if when:
+        lines.append(f"We'll try again on {when}.")
+    if pay_link:
+        lines.append(f"Prefer to pay another way? {pay_link}")
+    else:
+        lines.append("Reply here if that doesn't suit.")
+    lines.append("Reply STOP to opt out of these messages.")
+    return "\n".join(lines)
+
+
 @dataclass(frozen=True)
 class Message:
     """What gets sent, and to whom."""

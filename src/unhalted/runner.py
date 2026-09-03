@@ -52,8 +52,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from unhalted.models import AuditRecord, CaseState
-from unhalted.shell import windows
-from unhalted.shell.notify import ConsoleNotifier, Message, Notifier, deliver
+from unhalted.shell import paylink, windows
+from unhalted.shell.notify import ConsoleNotifier, Message, Notifier, deliver, nudge_body
 from unhalted.store import Store
 
 log = logging.getLogger("unhalted.runner")
@@ -124,18 +124,35 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
     Real. It goes through `deliver`, so the contact-hour rule applies here
     exactly as it does everywhere else — an action becoming due at 02:00 is not
     a reason to message somebody at 02:00.
+
+    Carries a real, payable link when one can be generated — the ladder prices
+    this rung as the way someone pays from a different account rather than
+    waits on a retry of the mandate that just failed. A link that fails to
+    generate does not hold the nudge; it goes out without one.
     """
     case = store.get_case(action["case_id"])
     if case is None:
         return Outcome("failed", "the case this action belongs to is gone")
 
+    # A link is a real network call to Razorpay; check contact hours first so
+    # one is not spent generating it for a message that will not go out this
+    # pass. `deliver` still owns the actual send decision below — this is a
+    # cheap, pure pre-check against the same rule, not a second policy.
+    if not windows.is_contact_allowed(now).allowed:
+        return Outcome(
+            "pending",
+            f"not sent: {windows.is_contact_allowed(now).reason}",
+            retry_at=windows.next_allowed_contact(now),
+        )
+
+    link = paylink.create_payment_link(
+        amount_paise=case.amount_paise,
+        description=f"payment retry for {case.id}",
+    )
     notifier: Notifier = ConsoleNotifier()
     message = Message(
         customer_ref=case.customer_ref,
-        body=(
-            f"Your payment of Rs {case.amount_rupees:.0f} didn't go through. "
-            f"Reply here if that doesn't suit. Reply STOP to opt out."
-        ),
+        body=nudge_body(case.amount_rupees, pay_link=link.url if link else None),
         case_id=case.id,
     )
     result = deliver(notifier, message, now=now)
