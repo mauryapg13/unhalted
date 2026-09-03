@@ -21,7 +21,7 @@ from unhalted.models import (
     ParsedReply,
 )
 from unhalted.shell import ladder, limits, replies, stops, verify, windows
-from unhalted.shell.scheduler import backoff_for, schedule_retry
+from unhalted.shell.scheduler import ScheduleDecision, backoff_for, schedule_retry
 from unhalted.store import Store
 
 #: Classes a silent retry can plausibly fix. Anything else needs a different rung.
@@ -483,3 +483,44 @@ def _verify(
         )
     )
     return False
+
+
+def resume_after_review(
+    store: Store, case: Case, *, now: datetime | None = None
+) -> ScheduleDecision:
+    """Re-arm a retry once a person clears what held the case.
+
+    Approving or reclassifying a held case says recovery may proceed; nothing
+    else made that true. Without this, a reviewer's decision only flipped the
+    case's state — it sat OPEN with no pending action, waiting on the customer
+    to write in again rather than on the retry a person just cleared it for.
+
+    This honours "now" the way a realignment does, rather than adding a
+    backoff on top of one already served waiting for a person: the review
+    itself was the wait. NPCI's bands and the retry cap still apply exactly as
+    they do everywhere else — a case that had already exhausted its cycle
+    before being held is refused here too, not silently re-armed.
+    """
+    now = windows.as_ist(now or datetime.now(tz=windows.IST))
+    signals = store.signals(case.id)
+    decision = schedule_retry(
+        now, retry_count=case.retry_count, now=now,
+        method=signals[0].method if signals else None,
+    )
+    if decision.scheduled_for:
+        store.schedule_action(case.id, case.customer_ref, "retry", decision.scheduled_for, now)
+    store.record(
+        AuditRecord(
+            case_id=case.id,
+            at=now,
+            decision_type="schedule",
+            action=(
+                f"retry re-armed after review to {decision.scheduled_for:%Y-%m-%d %H:%M %Z}"
+                if decision.scheduled_for else "re-arm after review refused"
+            ),
+            rules_fired=decision.rules_fired,
+            rule_version=decision.rule_version,
+            outcome=decision.reason,
+        )
+    )
+    return decision

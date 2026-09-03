@@ -88,6 +88,23 @@ def test_a_briefing_that_returns_nothing_says_so_rather_than_hanging(review, hel
     assert "model was unavailable" in buf.getvalue()
 
 
+def test_approving_re_arms_the_retry_the_case_was_held_against(review, held_case) -> None:
+    store, case = held_case
+    assert store.pending_actions(case_id=case.id) == []
+
+    review.record_decision(store, case, "approved", "looks fine", resume=True)
+
+    pending = store.pending_actions(case_id=case.id)
+    assert len(pending) == 1
+    assert pending[0]["kind"] == "retry"
+
+
+def test_rejecting_does_not_re_arm_anything(review, held_case) -> None:
+    store, case = held_case
+    review.record_decision(store, case, "rejected", "genuine dispute")
+    assert store.pending_actions(case_id=case.id) == []
+
+
 def test_the_thinking_line_appears_before_the_model_is_called(review, held_case) -> None:
     """So a reviewer watching sees why nothing is happening, rather than
     concluding the terminal has hung."""

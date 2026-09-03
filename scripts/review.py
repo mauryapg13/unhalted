@@ -32,6 +32,7 @@ import sys
 from datetime import datetime
 
 from unhalted import config, tui
+from unhalted.agent import resume_after_review
 from unhalted.core.summarise import brief
 from unhalted.models import AuditRecord, Case, CaseState, DiagnosisClass
 from unhalted.shell import windows
@@ -145,8 +146,18 @@ def _record_for_briefing(store: Store, case: Case) -> str:
 
 def record_decision(
     store: Store, case: Case, action: str, note: str, *, new_state: CaseState | None = None,
-    new_class: DiagnosisClass | None = None,
+    new_class: DiagnosisClass | None = None, resume: bool = False,
 ) -> None:
+    """Write the reviewer's verdict, and — for approved or reclassified cases
+    only — re-arm the retry it was blocking.
+
+    A verdict alone used to leave the case sitting OPEN with nothing
+    scheduled: state changed, and recovery did not resume until the customer
+    happened to write in again. `resume=True` is what makes "approved" mean
+    the same thing here that it does anywhere else in the system: the retry
+    the case was waiting on now actually gets scheduled, through the same
+    NPCI-banded, cap-checked path everything else uses.
+    """
     now = windows.as_ist(datetime.now(tz=windows.IST))
     if new_state is not None:
         store.set_state(case.id, new_state)
@@ -163,6 +174,14 @@ def record_decision(
         )
     )
     print(f"  {DIM}recorded against {case.id}, attributed to {reviewer()}{RESET}")
+
+    if resume:
+        refreshed = store.get_case(case.id) or case
+        decision = resume_after_review(store, refreshed, now=now)
+        if decision.scheduled_for:
+            print(f"  {DIM}retry re-armed for {decision.scheduled_for:%d %b %H:%M %Z}{RESET}")
+        else:
+            print(tui.paint(f"  retry not re-armed: {decision.reason}", tui.RED))
 
 
 def queue_of(store: Store) -> list[Case]:
@@ -267,7 +286,7 @@ def handle(store: Store, held: list[Case], choice: str) -> None:
 
         if action.startswith("a"):
             note = input("  note: ").strip()
-            record_decision(store, case, "approved", note, new_state=CaseState.OPEN)
+            record_decision(store, case, "approved", note, new_state=CaseState.OPEN, resume=True)
         elif action.startswith("r") and not action.startswith(("rec", "recl")):
             note = input("  note: ").strip()
             record_decision(store, case, "rejected", note, new_state=CaseState.UNRECOVERED)
@@ -283,7 +302,7 @@ def handle(store: Store, held: list[Case], choice: str) -> None:
             note = input("  note: ").strip()
             record_decision(
                 store, case, f"reclassified to {klass.value}", note,
-                new_state=CaseState.OPEN, new_class=klass,
+                new_state=CaseState.OPEN, new_class=klass, resume=True,
             )
             print(tui.paint(
                 "  the override is labelled data: an auditable record of where the "

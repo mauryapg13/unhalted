@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- Approving or reclassifying a held case did not resume anything. `record_decision` only flipped
+  the case's state; nothing scheduled the retry it had been blocking, so an approved case sat
+  `OPEN` with no pending action until the customer happened to write in again. `resume_after_review`
+  now re-arms it through the same NPCI-banded, cap-checked `schedule_retry` path every other retry
+  uses — honouring "now" the way a realignment does, since the review itself was the wait, not a
+  reason to add a further backoff on top of it. A case that had already exhausted its retry cycle
+  before being held is refused here too, not silently re-armed.
 - The scheduler terminal never showed what a reviewer decided. It filtered the audit trail down to
   `decision_type == "execution"` only, so `record_decision`'s "human-review" records — approved,
   rejected, reclassified, and by whom — were silently dropped; the log stopped at the cancellation
