@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/schedule.py` — the scheduler's terminal. Every action as it is scheduled, comes due,
+  executes, is deferred or is cancelled, as an append-only log rather than a redrawing table:
+  the argument this view exists to make is about *sequence* — a charge was scheduled, then the
+  customer said stop, then the charge did not happen — and a log lets a viewer read back up the
+  screen and see the order for themselves. `--run` makes it the worker as well as the watcher,
+  calling the same `run_due` the CLI and the HTTP endpoint call.
+- `src/unhalted/tui.py` — terminal formatting in one place. Three views of one system had three
+  copies of the same escape codes, which is how they end up looking like three systems. Everything
+  degrades to plain text off a terminal, so piping a view into a file gives output rather than
+  escape sequences.
+- `Store.actions(state=...)` reads scheduled actions in any state. `pending_actions` cannot return
+  a cancelled row, and a cancellation is exactly what the scheduler view needs to show.
+
+### Changed
+- The reviewer's terminal stays open. It exited the moment the queue was empty, which meant it was
+  never running when a case arrived. It now polls, redraws, announces what appeared with a `NEW`
+  marker, and closes only when the reviewer says so — using `select` rather than a thread, so the
+  reviewer can sit and watch *and* act without the read blocking either.
+- All three terminals carry a banner naming which view they are, and share one set of rules,
+  chips, tables and relative times ("in 16h 05m" rather than a timestamp a viewer has to subtract).
+
 ### Fixed
 - `--db` and `--at` work after a subcommand as well as before it. argparse puts an option on the
   parser it was declared against, so `unhalted --at X run-due` was correct and `unhalted run-due

@@ -7,6 +7,10 @@ should never be handled by automation at all.
 
     uv run python scripts/review.py
 
+It stays open. A reviewer's terminal that exits the moment the queue is empty is
+a reviewer's terminal that is never running when a case arrives, so this polls
+and redraws, announces what appeared, and closes only when the reviewer says so.
+
 Two things the specification insists on and this enforces:
 
 - **Auto-approval by timeout is prohibited.** Nothing here expires into a yes.
@@ -23,10 +27,11 @@ from __future__ import annotations
 
 import os
 import pathlib
+import select
 import sys
 from datetime import datetime
 
-from unhalted import config
+from unhalted import config, tui
 from unhalted.core.summarise import brief
 from unhalted.models import AuditRecord, Case, CaseState, DiagnosisClass
 from unhalted.shell import windows
@@ -36,7 +41,12 @@ from unhalted.store import Store
 #: at a different copy of the state is a reviewer looking at nothing.
 SESSION_DB = pathlib.Path(config.database_path())
 
-BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
+BOLD, DIM, RESET = tui.BOLD, tui.DIM, tui.RESET
+
+#: How often to look for new work while nobody is typing. Fast enough that a
+#: case appearing during a demo shows up while the moment is still live, slow
+#: enough that the terminal is not redrawing under a reader's eyes.
+POLL_SECONDS = 2.0
 
 
 def reviewer() -> str:
@@ -139,60 +149,151 @@ def record_decision(
     print(f"  {DIM}recorded against {case.id}, attributed to {reviewer()}{RESET}")
 
 
+def queue_of(store: Store) -> list[Case]:
+    return [c for c in store.all_cases() if c.state is CaseState.HELD_FOR_HUMAN]
+
+
+def draw_queue(store: Store, held: list[Case], *, arrived: list[Case]) -> None:
+    now = windows.as_ist(datetime.now(tz=windows.IST))
+    print(tui.clear(), end="")
+    print(tui.banner(
+        "REVIEWER — the human queue",
+        f"reviewer: {reviewer()} · {now:%d %b %H:%M IST} · nothing here expires into a yes",
+    ))
+
+    if arrived:
+        print()
+        for case in arrived:
+            print(f"  {tui.chip('NEW', tui.RED)} {case.id}   "
+                  f"Rs {case.amount_rupees:,.0f}   {tui.paint(case.customer_ref, tui.DIM)}")
+
+    print()
+    if not held:
+        print(tui.kv("waiting", "nothing is on a person's desk", tint=tui.GREEN))
+        print()
+        print(tui.paint("  The agent is handling everything itself. This stays open.", tui.DIM))
+    else:
+        rows = []
+        for n, case in enumerate(held, 1):
+            why = next(
+                (r for r in reversed(store.timeline(case.id)) if r.decision_type == "stop"),
+                None,
+            )
+            reason = ", ".join(why.rules_fired) if why else "unknown"
+            rows.append((
+                f"{n}.",
+                case.id,
+                f"Rs {case.amount_rupees:>7,.0f}",
+                tui.paint(reason, tui.RED),
+                tui.paint(tui.relative(case.opened_at, now), tui.DIM),
+            ))
+        print(tui.table(rows, headers=("", "case", "amount", "why it stopped", "opened")))
+
+    print()
+    print(tui.rule())
+    print(tui.paint(
+        f"  case number or id to open · q to close the session · refreshing every "
+        f"{POLL_SECONDS:.0f}s",
+        tui.DIM,
+    ))
+
+
+def wait_for_input(seconds: float) -> str | None:
+    """A line if one is typed within `seconds`, otherwise None.
+
+    The reviewer has to be able to sit and watch *and* to act, so the read
+    cannot simply block. `select` gives both without a thread, and a thread here
+    would need to share the store across two of them for no gain.
+    """
+    if not sys.stdin.isatty():
+        line = sys.stdin.readline()
+        return line.strip() if line else "q"
+    ready, _, _ = select.select([sys.stdin], [], [], seconds)
+    if not ready:
+        return None
+    line = sys.stdin.readline()
+    return line.strip() if line else "q"
+
+
+def handle(store: Store, held: list[Case], choice: str) -> None:
+    case = pick(held, choice)
+    if case is None:
+        print(tui.paint(f"  no case matching {choice!r}", tui.RED))
+        wait_for_input(1.5)
+        return
+
+    print(tui.clear(), end="")
+    print(tui.banner(f"REVIEWING {case.id}", "the raw material, then your decision"))
+    show_case(store, case)
+    print()
+    print(tui.rule("your decision"))
+    print(f"  {tui.paint('a', tui.BOLD)}pprove   {tui.paint('r', tui.BOLD)}eject   "
+          f"re{tui.paint('c', tui.BOLD)}lassify   {tui.paint('b', tui.BOLD)}ack")
+    action = (input("  action: ").strip().lower() or "b")
+
+    if action.startswith("a"):
+        note = input("  note: ").strip()
+        record_decision(store, case, "approved", note, new_state=CaseState.OPEN)
+    elif action.startswith("r") and not action.startswith(("rec", "recl")):
+        note = input("  note: ").strip()
+        record_decision(store, case, "rejected", note, new_state=CaseState.UNRECOVERED)
+    elif action.startswith(("c", "rec")):
+        print("  classes: " + ", ".join(c.value for c in DiagnosisClass))
+        raw = input("  reclassify to: ").strip()
+        try:
+            klass = DiagnosisClass(raw)
+        except ValueError:
+            print(tui.paint("  not a class", tui.RED))
+            wait_for_input(1.5)
+            return
+        note = input("  note: ").strip()
+        record_decision(
+            store, case, f"reclassified to {klass.value}", note,
+            new_state=CaseState.OPEN, new_class=klass,
+        )
+        print(tui.paint(
+            "  the override is labelled data: an auditable record of where the "
+            "taxonomy was wrong", tui.DIM,
+        ))
+    else:
+        return
+    wait_for_input(2.0)
+
+
 def main() -> int:
     if not SESSION_DB.exists():
         print(f"no session database at {SESSION_DB.name}.")
-        print("Run `uv run python scripts/session.py` first.")
+        print("Run `uv run python scripts/session.py` first, or")
+        print("`uv run unhalted run-due` to create it.")
         return 1
 
     store = Store(str(SESSION_DB))
+    seen: set[str] = {c.id for c in queue_of(store)}
+    arrived: list[Case] = []
+
     try:
         while True:
-            held = [c for c in store.all_cases() if c.state is CaseState.HELD_FOR_HUMAN]
-            print(f"\n{BOLD}Review queue{RESET}  {DIM}reviewer: {reviewer()}{RESET}")
-            if not held:
-                print(f"  {DIM}empty — nothing is waiting on a person{RESET}")
-                return 0
-            for n, c in enumerate(held, 1):
-                print(f"  {n}. {c.id}   Rs {c.amount_rupees:.0f}   {c.customer_ref}")
+            held = queue_of(store)
+            ids = {c.id for c in held}
+            fresh = [c for c in held if c.id not in seen]
+            if fresh:
+                arrived = fresh
+            seen = ids
 
-            choice = input("\n  case (number or id, q to quit): ").strip()
-            if choice.lower() in ("q", "quit", ""):
-                return 0
+            draw_queue(store, held, arrived=arrived)
+            choice = wait_for_input(POLL_SECONDS)
 
-            case = pick(held, choice)
-            if case is None:
-                print(f"  no case matching {choice!r}")
+            if choice is None:
+                arrived = []          # shown once, then it stops being news
                 continue
-
-            show_case(store, case)
-            print(f"\n  {BOLD}a{RESET}pprove   {BOLD}r{RESET}eject   "
-                  f"re{BOLD}c{RESET}lassify   {BOLD}b{RESET}ack")
-            action = input("  action: ").strip().lower()
-
-            if action.startswith("a"):
-                note = input("  note: ").strip()
-                record_decision(store, case, "approved", note, new_state=CaseState.OPEN)
-            elif action.startswith("r") and not action.startswith(("rec", "recl")):
-                note = input("  note: ").strip()
-                record_decision(store, case, "rejected", note, new_state=CaseState.UNRECOVERED)
-            elif action.startswith(("c", "rec")):
-                print("  classes: " + ", ".join(c.value for c in DiagnosisClass))
-                raw = input("  reclassify to: ").strip()
-                try:
-                    klass = DiagnosisClass(raw)
-                except ValueError:
-                    print("  not a class")
-                    continue
-                note = input("  note: ").strip()
-                record_decision(
-                    store, case, f"reclassified to {klass.value}", note,
-                    new_state=CaseState.OPEN, new_class=klass,
-                )
-                print(f"  {DIM}the override is labelled data: an auditable record of where the"
-                      f" taxonomy was wrong{RESET}")
+            if choice.lower() in ("q", "quit"):
+                print(tui.paint("\n  session closed by the reviewer.\n", tui.DIM))
+                return 0
+            if not choice:
+                continue
+            handle(store, held, choice)
     except (EOFError, KeyboardInterrupt):
-        print()
+        print(tui.paint("\n  session closed.\n", tui.DIM))
         return 0
     finally:
         store.close()

@@ -218,3 +218,21 @@ def test_novelty_is_decided_under_the_same_lock_as_the_case(tmp_path) -> None:
         assert created_again is False
     finally:
         store.close()
+
+
+def test_actions_can_be_read_in_any_state(tmp_path) -> None:
+    """The scheduler view needs cancelled rows too — an action stopped by a
+    rule is an event worth showing, and `pending_actions` cannot return it."""
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "states.db"))
+    try:
+        case = handle_failure(store, signal(7), now=now)
+        assert len(store.actions(state="pending")) >= 1
+        assert store.actions(state="cancelled") == []
+
+        store.cancel_pending("REVOKED", case_id=case.id)
+        assert store.actions(state="pending") == []
+        assert len(store.actions(state="cancelled")) >= 1
+        assert len(store.actions()) >= 1, "no state filter means every state"
+    finally:
+        store.close()

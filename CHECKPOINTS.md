@@ -255,6 +255,12 @@ structured lines as they happen.
 **Not included:** a web dashboard. A live-updating view. Any server-rendered UI. The interfaces are
 structured logs, JSON endpoints and the CLI.
 
+**Amended.** "A live-updating view" originally sat in the excluded list, written against a web
+dashboard. Three terminal views that poll the store are not that: a reviewer's queue that exits when
+it is empty is a queue nobody is watching when a case arrives, and a scheduler with no view of what
+it holds cannot be operated at all. They read real rows, invent no events, and print plain text off
+a terminal. The exclusion still stands for anything served over HTTP.
+
 **Optional, last, only if C10 is otherwise met:** `unhalted report --html` writing a static file
 from the same measurement tables. A generated report, not a dashboard — no server, no live wiring.
 

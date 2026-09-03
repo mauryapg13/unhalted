@@ -445,6 +445,36 @@ class Store:
             )
             return int(cur.lastrowid or 0)
 
+    def actions(
+        self,
+        *,
+        state: str | None = None,
+        customer_ref: str | None = None,
+        case_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Scheduled actions, filtered. `state=None` returns every state.
+
+        The scheduler view needs cancelled and leased rows as well as pending
+        ones — an action that was cancelled by a stop rule is an event worth
+        showing, and `pending_actions` by name cannot return it.
+        """
+        sql = "SELECT * FROM pending_actions"
+        params: list[Any] = []
+        clauses = []
+        if state is not None:
+            clauses.append("state = ?")
+            params.append(state)
+        if customer_ref:
+            clauses.append("customer_ref = ?")
+            params.append(customer_ref)
+        if case_id:
+            clauses.append("case_id = ?")
+            params.append(case_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        with self._read() as conn:
+            return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
     def pending_actions(
         self, *, customer_ref: str | None = None, case_id: str | None = None
     ) -> list[dict[str, Any]]:

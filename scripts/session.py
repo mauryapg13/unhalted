@@ -23,7 +23,7 @@ import json
 import pathlib
 import sys
 
-from unhalted import clock, config
+from unhalted import clock, config, tui
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
@@ -42,7 +42,8 @@ BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 
 
 def rule(title: str) -> None:
-    print(f"\n{BOLD}{title}{RESET}\n{DIM}{'─' * 66}{RESET}")
+    print()
+    print(tui.rule(title))
 
 
 def real_signal():
@@ -79,6 +80,11 @@ def main() -> int:
         stated, note = clock.resolve(args.at)
     except clock.BadTime as exc:
         sys.exit(str(exc))
+
+    print(tui.banner(
+        "CUSTOMER — the recovery conversation",
+        f"{MERCHANT} · a real captured Razorpay failure · type a reply, Ctrl-D to finish",
+    ))
 
     store = Store(str(SESSION_DB))
     notifier = ConsoleNotifier()
