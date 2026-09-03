@@ -22,7 +22,7 @@ import pathlib
 import sys
 import textwrap
 
-from unhalted import config
+from unhalted import clock, config
 from unhalted.measure.compare import LEGEND, compare, differences
 from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
@@ -263,14 +263,21 @@ def show_queue(store: Store) -> int:
 # -- unhalted run-due ---------------------------------------------------------
 
 
-def run_due_actions(store: Store) -> int:
+def run_due_actions(store: Store, at: str | None = None) -> int:
     """Execute whatever has come due, once.
 
     Safe to run at any moment, including twice in the same second: a pass that
     finds nothing due does nothing. That is what lets the same function sit
     behind a cron entry, an HTTP request, or a person typing this.
     """
-    print(run_due(store).render())
+    try:
+        now, note = clock.resolve(at)
+    except clock.BadTime as exc:
+        print(exc)
+        return 2
+    if note:
+        print(note)
+    print(run_due(store, now=now).render())
     return 0
 
 
@@ -355,6 +362,13 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--db", help="case database (default: $UNHALTED_DB)")
+    parser.add_argument(
+        "--at",
+        metavar="'YYYY-MM-DD HH:MM'",
+        help="evaluate the rules against this time (IST) instead of now. "
+             "For rehearsal and testing; it announces itself loudly, and is not "
+             "for recording.",
+    )
     sub = parser.add_subparsers(dest="command")
 
     case_cmd = sub.add_parser("case", help="print one case end to end")
@@ -391,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-due":
         store = open_store(args.db)
         try:
-            return run_due_actions(store)
+            return run_due_actions(store, args.at)
         finally:
             store.close()
 

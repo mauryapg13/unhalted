@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+- `--at 'YYYY-MM-DD HH:MM'` on `unhalted run-due` and `scripts/session.py`, so the window rules can
+  be rehearsed at any hour rather than only inside one. The library already took `now` everywhere —
+  333 tests depend on it — and the scripts did not, which meant a run sheet could be tested at 3am
+  and a rehearsal could not. Nothing about behaviour changes; only the instant the same rules are
+  evaluated against.
+- An override announces itself on stdout, where a recording would capture it. The risk was never the
+  capability, it was using it silently and letting a stated time pass for a real one, so the safety
+  is visibility rather than absence.
+
+### Fixed
+- A retry realigned by a promise-to-pay did not carry the payment method, so the same card case was
+  unbanded when first scheduled and banded when realigned — moved for a UPI Autopay rule that does
+  not reach cards, and recorded as a `WINDOW_VIOLATION` that never happened. The #30 fix threaded the
+  method through one of the two `schedule_retry` callers and missed the other. Found while rehearsing
+  against a forced clock.
+
 ### Fixed
 - The action lease claimed and read in two statements, joined by `(worker, leased_until)` — a key
   that is not unique. A worker claiming twice inside one lease window re-read its earlier batch, and

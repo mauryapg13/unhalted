@@ -17,13 +17,13 @@ model-written, and says so.
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import pathlib
 import sys
-from datetime import datetime
 
-from unhalted import config
+from unhalted import clock, config
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
@@ -68,9 +68,23 @@ def nudge_body(amount_rupees: float, when: str) -> str:
 def main() -> int:
     # A file, not memory, so `scripts/review.py` in another terminal sees the
     # same cases. The human queue is not a view onto a copy.
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--at",
+        metavar="'YYYY-MM-DD HH:MM'",
+        help="rehearse against this time (IST) rather than now. Announces itself.",
+    )
+    args = ap.parse_args()
+    try:
+        stated, note = clock.resolve(args.at)
+    except clock.BadTime as exc:
+        sys.exit(str(exc))
+
     store = Store(str(SESSION_DB))
     notifier = ConsoleNotifier()
-    now = windows.as_ist(datetime.now(tz=windows.IST))
+    now = windows.as_ist(stated)
+    if note:
+        print(note)
     today = now.date()
 
     signal = real_signal()

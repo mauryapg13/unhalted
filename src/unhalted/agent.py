@@ -369,7 +369,17 @@ def handle_reply(
     if outcome.realign_to:
         store.cancel_pending("REALIGNED", case_id=case.id)
         target = datetime.combine(outcome.realign_to, now.timetz())
-        decision = schedule_retry(target, retry_count=case.retry_count, now=now)
+        # The method comes from the case's own signal, exactly as it does on the
+        # first schedule. Omitting it here treated a realigned card retry as
+        # governed by NPCI's UPI bands while the original was not — the same
+        # case banded on one path and unbanded on the other.
+        signals = store.signals(case.id)
+        decision = schedule_retry(
+            target,
+            retry_count=case.retry_count,
+            now=now,
+            method=signals[0].method if signals else None,
+        )
         if decision.scheduled_for:
             store.schedule_action(
                 case.id, case.customer_ref, "retry", decision.scheduled_for, now

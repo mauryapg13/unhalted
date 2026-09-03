@@ -204,3 +204,48 @@ def test_a_truncated_response_is_not_retried() -> None:
     assert "truncated" in parsed.failure_reason
     assert "max_tokens" in parsed.failure_reason
     assert parsed.cost_usd == 0.0003, "a call that returned nothing was still billed"
+
+
+def test_a_realigned_retry_is_banded_the_same_way_the_first_one_was(tmp_path) -> None:
+    """Issue #30 again, on the path the original fix missed.
+
+    A promise-to-pay reschedules through a second `schedule_retry` call. It did
+    not pass the method, so the same card case was unbanded when first scheduled
+    and banded when realigned — moved for a regulation that does not reach it,
+    and recorded as a WINDOW_VIOLATION that never happened.
+    """
+    from datetime import date, datetime
+
+    from unhalted.agent import handle_failure
+    from unhalted.models import FailureSignal
+    from unhalted.shell.scheduler import schedule_retry
+    from unhalted.shell.windows import IST
+    from unhalted.store import Store
+
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "realign.db"))
+    try:
+        case = handle_failure(
+            store,
+            FailureSignal(
+                payment_id="pay_RE", customer_ref="cust_re", amount_paise=49900,
+                occurred_at=now, source="test", method="card",
+                error_reason="insufficient_funds", error_source="customer",
+            ),
+            now=now,
+        )
+        signals = store.signals(case.id)
+        assert signals[0].method == "card"
+
+        # Both paths, same target, same method: they must agree.
+        target = datetime.combine(date(2026, 9, 4), now.timetz())
+        banded = schedule_retry(target, retry_count=0, now=now, method=None)
+        carded = schedule_retry(target, retry_count=0, now=now, method="card")
+
+        assert any("WINDOW_VIOLATION" in r for r in banded.rules_fired)
+        assert not any("WINDOW_VIOLATION" in r for r in carded.rules_fired), (
+            "a card retry must not be moved for a UPI Autopay rule"
+        )
+    finally:
+        store.close()
+
