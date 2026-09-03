@@ -27,7 +27,7 @@ from unhalted.measure.compare import LEGEND, compare, differences
 from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
 from unhalted.runner import run_due
-from unhalted.store import Store
+from unhalted.store import OrphanedWriteAheadLog, Store
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
 
@@ -351,6 +351,34 @@ def show_capabilities() -> int:
 # -- entry point --------------------------------------------------------------
 
 
+#: Flags that mean the same thing wherever they appear.
+#:
+#: argparse puts an option on the parser it was declared against, so declaring
+#: these once at the top makes `unhalted --at X run-due` correct and
+#: `unhalted run-due --at X` an error. That is a distinction nobody should have
+#: to learn, and I walked into it myself within a minute of adding the flag.
+#:
+#: Every subcommand gets them too, with `SUPPRESS` as the default so an absent
+#: flag leaves the attribute unset rather than overwriting what the top-level
+#: parser already read. A plain `default=None` on the subparser silently wins,
+#: which is the argparse trap this exists to avoid.
+def add_global_flags(
+    parser: argparse.ArgumentParser, *, on_subcommand: bool = False
+) -> None:
+    default = argparse.SUPPRESS if on_subcommand else None
+    parser.add_argument(
+        "--db", default=default, help="case database (default: $UNHALTED_DB)"
+    )
+    parser.add_argument(
+        "--at",
+        default=default,
+        metavar="'YYYY-MM-DD HH:MM'",
+        help="evaluate the rules against this time (IST) instead of now. "
+             "For rehearsal and testing; it announces itself loudly, and is not "
+             "for recording.",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="unhalted",
@@ -361,40 +389,50 @@ def main(argv: list[str] | None = None) -> int:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--db", help="case database (default: $UNHALTED_DB)")
-    parser.add_argument(
-        "--at",
-        metavar="'YYYY-MM-DD HH:MM'",
-        help="evaluate the rules against this time (IST) instead of now. "
-             "For rehearsal and testing; it announces itself loudly, and is not "
-             "for recording.",
-    )
+    add_global_flags(parser)
     sub = parser.add_subparsers(dest="command")
 
-    case_cmd = sub.add_parser("case", help="print one case end to end")
+    def command(name: str, **kwargs) -> argparse.ArgumentParser:
+        """Add a subcommand that also accepts the global flags."""
+        p = sub.add_parser(name, **kwargs)
+        add_global_flags(p, on_subcommand=True)
+        return p
+
+    case_cmd = command("case", help="print one case end to end")
     case_cmd.add_argument("case_id")
     case_cmd.add_argument("-v", "--verbose", action="store_true",
                           help="show every recorded input, not just the notable ones")
 
-    cases_cmd = sub.add_parser("cases", help="list cases")
+    cases_cmd = command("cases", help="list cases")
     cases_cmd.add_argument("--state", help="filter by state")
 
-    sub.add_parser("queue", help="what is waiting on a person")
-    comparison = sub.add_parser(
+    command("queue", help="what is waiting on a person")
+    comparison = command(
         "compare", help="the same case under Razorpay's documented retry policy"
     )
     comparison.add_argument("case_id")
 
-    sub.add_parser("run-due", help="execute the actions that have come due")
-    sub.add_parser("breakeven", help="what the money argument rests on")
-    sub.add_parser("report", help="the batch measurement")
-    sub.add_parser("capabilities", help="what this deployment can do")
+    command("run-due", help="execute the actions that have come due")
+    command("breakeven", help="what the money argument rests on")
+    command("report", help="the batch measurement")
+    command("capabilities", help="what this deployment can do")
 
     args = parser.parse_args(argv)
 
     if args.command in (None,):
         parser.print_help()
         return 0
+
+    try:
+        return dispatch(args)
+    except OrphanedWriteAheadLog as exc:
+        # A message, not a traceback. The remedy is in the text and the reader
+        # is somebody resetting a database, not somebody debugging this file.
+        print(exc)
+        return 2
+
+
+def dispatch(args) -> int:
     if args.command == "compare":
         store = open_store(args.db)
         try:

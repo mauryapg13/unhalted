@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- `--db` and `--at` work after a subcommand as well as before it. argparse puts an option on the
+  parser it was declared against, so `unhalted --at X run-due` was correct and `unhalted run-due
+  --at X` was an error — a distinction nobody should have to learn, and one I walked into a minute
+  after adding the flag. Every subcommand now takes them too, with `SUPPRESS` as the default so an
+  absent flag does not overwrite what the top-level parser already read.
+- A database deleted while its write-ahead log survived now says so, and names the files to remove.
+  In WAL mode SQLite keeps `-wal` and `-shm` beside the database, and `rm unhalted.db` leaves them;
+  the next open failed with a bare `disk I/O error`. Resetting by hand is exactly what somebody does
+  before a demo, so the message carries the remedy and the CLI prints it rather than a traceback.
+- The audit trail no longer records "case-opened" for a case that was already open. Razorpay
+  redelivers, and re-running the session script sends the same payment again — both correctly match
+  the existing case, and recording an opening for either made the trail assert an event that never
+  happened. `Store.open_case_or_get` reports novelty from inside the lock that decides it.
+
 ### Added
 - `--at 'YYYY-MM-DD HH:MM'` on `unhalted run-due` and `scripts/session.py`, so the window rules can
   be rehearsed at any hour rather than only inside one. The library already took `now` everywhere —

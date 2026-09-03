@@ -186,3 +186,35 @@ def test_four_processes_never_claim_the_same_action(tmp_path) -> None:
     all_claims = [i for _, claims, _ in results for i in claims]
     assert len(all_claims) == len(set(all_claims)), "an action was claimed twice"
     assert len(set(all_claims)) == expected, "some actions were never claimed"
+
+
+def test_a_redelivered_payment_is_reported_as_known_not_as_opened(tmp_path) -> None:
+    """The audit trail must not claim an opening that did not happen.
+
+    Razorpay redelivers, and re-running the demo script sends the same payment
+    again. Both correctly match the existing case; recording "case-opened" for
+    either made the trail assert an event that never occurred.
+    """
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "dupe.db"))
+    try:
+        first = handle_failure(store, signal(1), now=now)
+        second = handle_failure(store, signal(1), now=now)
+        assert first.id == second.id, "one payment is one case"
+
+        ingests = [r.action for r in store.timeline(first.id)
+                   if r.decision_type == "ingest"]
+        assert ingests == ["case-opened", "signal already known; case is open"]
+    finally:
+        store.close()
+
+
+def test_novelty_is_decided_under_the_same_lock_as_the_case(tmp_path) -> None:
+    store = Store(str(tmp_path / "novel.db"))
+    try:
+        _, created_first = store.open_case_or_get(signal(2))
+        _, created_again = store.open_case_or_get(signal(2))
+        assert created_first is True
+        assert created_again is False
+    finally:
+        store.close()

@@ -17,6 +17,7 @@ low volume. It is not a reason to reach for a server database.
 from __future__ import annotations
 
 import logging
+import pathlib
 import sqlite3
 import threading
 import uuid
@@ -108,12 +109,17 @@ def default_db_path() -> str:
     return config.database_path()
 
 
+class OrphanedWriteAheadLog(RuntimeError):
+    """The database file was deleted while its write-ahead log survived."""
+
+
 class Store:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or default_db_path()
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._check_for_orphaned_wal()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -163,6 +169,37 @@ class Store:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
+    def _check_for_orphaned_wal(self) -> None:
+        """Refuse to open a database whose main file was deleted under it.
+
+        In WAL mode SQLite keeps `-wal` and `-shm` beside the database, and
+        `rm unhalted.db` leaves them behind. The next open then fails with a
+        bare `disk I/O error`, which says nothing about the cause — and this is
+        an easy mistake to make, because resetting for a demo is exactly when
+        somebody deletes the database by hand.
+
+        The orphans cannot be recovered from: a write-ahead log refers to a
+        database that no longer exists. But deleting other people's files on
+        their behalf is not this constructor's business, so it names them and
+        stops.
+        """
+        main = pathlib.Path(self.path)
+        if main.exists() or self.path == ":memory:":
+            return
+        orphans = [
+            p for p in (main.with_name(main.name + "-wal"),
+                        main.with_name(main.name + "-shm"))
+            if p.exists()
+        ]
+        if not orphans:
+            return
+        listed = " ".join(str(p) for p in orphans)
+        raise OrphanedWriteAheadLog(
+            f"{self.path} is gone but its write-ahead log is not: {listed}. "
+            f"A log without its database cannot be recovered from. Remove them "
+            f"and try again:\n    rm -f {self.path} {listed}"
+        )
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
@@ -190,6 +227,23 @@ class Store:
 
     # -- cases ---------------------------------------------------------------
 
+    def open_case_or_get(self, signal: FailureSignal) -> tuple[Case, bool]:
+        """Returns `(case, created)`.
+
+        Callers that write an audit record need to know which happened. Writing
+        "case-opened" for a signal that merely matched an existing case makes
+        the trail claim an event that did not occur — and running the demo
+        script twice against one database produced exactly that.
+
+        Novelty is decided inside the same lock as the case, so the answer
+        cannot be stale by the time it is used.
+        """
+        with self._lock:
+            existing = self.case_for_payment(signal.payment_id)
+            if existing:
+                return existing, False
+            return self._open_case_locked(signal), True
+
     def open_case(self, signal: FailureSignal) -> Case:
         """Open a case for a signal, or return the existing one.
 
@@ -207,8 +261,7 @@ class Store:
         constraint holds regardless, and losing that race returns the case the
         winner opened rather than raising.
         """
-        with self._lock:
-            return self._open_case_locked(signal)
+        return self.open_case_or_get(signal)[0]
 
     def _open_case_locked(self, signal: FailureSignal) -> Case:
         existing = self.case_for_payment(signal.payment_id)

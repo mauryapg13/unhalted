@@ -40,14 +40,18 @@ def handle_failure(
 ) -> Case:
     """Take one failed debit from signal to scheduled next action."""
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
-    case = store.open_case(signal)
+    case, created = store.open_case_or_get(signal)
 
+    # "case-opened" only when one was. Razorpay redelivers, and re-running the
+    # demo script against the same database sends the same payment again — both
+    # correctly match the existing case, and recording an opening for either
+    # made the audit trail assert an event that never happened.
     store.record(
         AuditRecord(
             case_id=case.id,
             at=now,
             decision_type="ingest",
-            action="case-opened",
+            action="case-opened" if created else "signal already known; case is open",
             inputs={
                 "payment_id": signal.payment_id,
                 "error_reason": signal.error_reason,
