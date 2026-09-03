@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixed
+- `scripts/session.py` no longer replays the same case forever. `real_signal` always read the
+  alphabetically first captured fixture, so a database that already held a case for it matched
+  straight back to that case on every later run — correctly, but it meant the three fixtures'
+  three distinct real payments were never actually reached. It now walks the fixtures for the
+  first `payment_id` the database has no case for, so running the script again gives the next
+  real case rather than the same one, and only replays once every fixture has been used.
 - `test_a_truncated_response_is_not_retried` passed only where a real API key happened to be on
   disk. `_call_model` returns before its mocked `httpx.post` is reached when
   `config.model_api_key()` is empty, which it always is in CI — the test now sets a fake key

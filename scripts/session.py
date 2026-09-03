@@ -46,11 +46,32 @@ def rule(title: str) -> None:
     print(tui.rule(title))
 
 
-def real_signal():
+def real_signal(store: Store):
+    """The next real captured failure this database hasn't seen yet.
+
+    Always returning `files[0]` meant every run — even against a database
+    already holding a case — replayed the same payment, so `open_case_or_get`
+    correctly matched it back to the same case and it looked like the demo
+    could only ever produce one. The three captured fixtures are three
+    distinct real payments; this walks them in order and picks the first
+    whose `payment_id` has no case yet, so running the script again gives you
+    the next one rather than the same one back.
+    """
     files = sorted(glob.glob(str(CAPTURED / "*.json")))
     if not files:
         sys.exit("no captured payments; see docs/capturing-fixtures.md")
-    payment = json.loads(pathlib.Path(files[0]).read_text())["payment"]
+    unseen = None
+    for f in files:
+        payment = json.loads(pathlib.Path(f).read_text())["payment"]
+        if store.case_for_payment(payment["id"]) is None:
+            unseen = payment
+            break
+    if unseen is None:
+        payment = json.loads(pathlib.Path(files[-1]).read_text())["payment"]
+        print(f"  {DIM}every captured payment already has a case in this database; "
+              f"replaying {payment['id']}{RESET}")
+    else:
+        payment = unseen
     return from_payment_failed(
         {"event": "payment.failed", "payload": {"payment": {"entity": payment}},
          "created_at": payment.get("created_at")}
@@ -93,7 +114,7 @@ def main() -> int:
         print(note)
     today = now.date()
 
-    signal = real_signal()
+    signal = real_signal(store)
 
     rule("1. A real payment failure arrives")
     print(f"  payment  {signal.payment_id}   Rs {signal.amount_rupees:.0f}   {signal.method}")
