@@ -14,10 +14,14 @@
   Closes #30.
 
 ### Added
-- CI runs daily at 01:30 UTC — 07:00 IST — and on demand via `workflow_dispatch`. The drift check
-  against Razorpay's documentation previously ran only on `push` and `pull_request`, so it watched
-  for changes exactly when somebody was already working and never when they were not. Their
-  documentation does not wait for us to commit.
+- The drift check against Razorpay's documentation can be run on demand, via `workflow_dispatch`,
+  as well as on every push and pull request. That is the trigger that matches how the rule actually
+  changes: somebody reads that a circular has landed and comes to check.
+- An unattended daily schedule sits in `ci.yml`, written and commented out, with the conditions for
+  switching it on. It is the right trigger for a running service and the wrong one for a repository
+  that will be quiet between bursts of work — GitHub disables scheduled workflows after sixty days
+  of inactivity, and a daily run nobody watches decays into a red badge that means nothing. Recorded
+  as a decision rather than left as a gap.
 
 ### Added
 - `unhalted breakeven` and `measure/outcomes.py` — the money argument, with nothing in it that is a

@@ -4,15 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
-  # 01:30 UTC is 07:00 IST — before the working day in India, so a drift found
-  # overnight is waiting when somebody opens the laptop rather than found three
-  # weeks later. The push and pull_request triggers only fire while somebody is
-  # working; Razorpay's documentation does not wait for that. See issue #30.
-  schedule:
-    - cron: "30 1 * * *"
-  # So a drift can be checked deliberately, before a release or after a circular
-  # lands, without pushing a commit to trigger it.
+  # Drift is checked when a developer asks for it: on every push and pull
+  # request, and on demand from the Actions tab before a release or when a
+  # circular lands. That is the trigger that matches how this rule actually
+  # changes — somebody notices a policy update and comes to check.
   workflow_dispatch:
+
+  # An unattended daily check, deliberately left off.
+  #
+  # It is the right trigger for a service somebody is running, and the wrong one
+  # here: this repository will be quiet between bursts of work, GitHub disables
+  # scheduled workflows after 60 days without activity, and a daily run nobody
+  # is watching decays into a red badge that means nothing. A watcher people
+  # learn to ignore is worse than no watcher.
+  #
+  # Uncomment when this is deployed and someone is on the other end of it.
+  #
+  # schedule:
+  #   - cron: "30 1 * * *"   # 01:30 UTC = 07:00 IST, before the working day
 
 jobs:
   test:
