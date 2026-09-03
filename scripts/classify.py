@@ -19,19 +19,8 @@ from datetime import UTC, datetime
 
 from unhalted import tui
 from unhalted.core.diagnose import diagnose
+from unhalted.core.scenarios import ERROR_SOURCE, METHOD, SCENARIOS
 from unhalted.models import FailureSignal
-
-#: (label, error_reason) — the five card scenarios docs/capturing-fixtures.md
-#: names, each behind a different published Razorpay test card. `error_source`
-#: is "gateway" throughout: all five are a card checkout declining, same as
-#: the three fixtures already captured on this account.
-SCENARIOS = [
-    ("insufficient_fund", "the account did not have enough funds"),
-    ("gateway_technical_error", "partner bank downtime or a technical issue"),
-    ("card_declined", "declined by the bank, no cause stated"),
-    ("payment_timed_out", "the customer exceeded the payment time limit"),
-    ("authentication_failed", "OTP or 3DS was not completed"),
-]
 
 
 def main() -> int:
@@ -46,7 +35,7 @@ def main() -> int:
         signal = FailureSignal(
             payment_id=f"pay_EXPLORE_{reason}", customer_ref="cust_explore",
             amount_paise=49900, occurred_at=datetime.now(tz=UTC),
-            source="explore", method="card", error_reason=reason, error_source="gateway",
+            source="explore", method=METHOD, error_reason=reason, error_source=ERROR_SOURCE,
         )
         diagnosed.append((reason, gloss, diagnose(signal)))
 

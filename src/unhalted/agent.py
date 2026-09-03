@@ -40,18 +40,25 @@ def handle_failure(
 ) -> Case:
     """Take one failed debit from signal to scheduled next action."""
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
-    case, created = store.open_case_or_get(signal)
+    case, _ = store.open_case_or_get(signal)
 
-    # "case-opened" only when one was. Razorpay redelivers, and re-running the
-    # demo script against the same database sends the same payment again — both
-    # correctly match the existing case, and recording an opening for either
-    # made the audit trail assert an event that never happened.
+    # Whether this signal has actually been worked, not whether this call
+    # happened to be the one that inserted the case row. The two used to be
+    # treated as the same thing via `open_case_or_get`'s own `created` flag,
+    # but `ingest/webhooks.py` calls `open_case()` first, for durability,
+    # before ever calling this function — so from here, `created` reads False
+    # on *every* webhook, including a payment's genuine first-ever delivery.
+    # A diagnosis existing is the one signal that's true regardless of which
+    # caller happened to create the row: nobody has diagnosed this case yet
+    # means nothing has actually been decided about it yet.
+    already_processed = store.latest_diagnosis(case.id) is not None
+
     store.record(
         AuditRecord(
             case_id=case.id,
             at=now,
             decision_type="ingest",
-            action="case-opened" if created else "signal already known; case is open",
+            action="signal already known; case is open" if already_processed else "case-opened",
             inputs={
                 "payment_id": signal.payment_id,
                 "error_reason": signal.error_reason,
@@ -63,6 +70,19 @@ def handle_failure(
             outcome=case.id,
         )
     )
+
+    # A signal already diagnosed stops here. This used to fall through into
+    # diagnosing and scheduling again on every redelivery — harmless for the
+    # diagnosis itself (a redelivered payload classifies identically), not
+    # harmless for scheduling: a second `schedule_action("retry", ...)` for a
+    # case that already has one is a second scheduled debit for a failure
+    # that happened once. Found by sending one payment through the real
+    # webhook endpoint under two event ids — exactly the redelivery
+    # `test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case`
+    # exists to guard against, which checked case *count*, not action count,
+    # and two pending retries passed it silently.
+    if already_processed:
+        return case
 
     # Before classifying, ask whether this is even a failure. Razorpay documents
     # a capture following a failure on the same transaction, and retrying such a

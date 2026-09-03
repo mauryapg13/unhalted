@@ -184,6 +184,31 @@ def test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case(client) 
     assert len(client.store.all_cases()) == 1
 
 
+def test_the_same_payment_under_a_new_event_id_does_not_schedule_a_second_retry(client) -> None:
+    """Reusing the case is not enough on its own — this passed with two
+    pending retries for one failure before `handle_failure` gated on whether
+    the case had actually been diagnosed rather than on which call created its
+    row. Two scheduled retries for one failure is two scheduled debits."""
+    event = load("payment_failed_netbanking")
+    first = post(client, event, event_id="evt_a")
+    post(client, event, event_id="evt_b")
+
+    case_id = first.json()["case_id"]
+    assert len(client.store.pending_actions(case_id=case_id)) == 1
+
+
+def test_the_very_first_delivery_is_recorded_as_case_opened(client) -> None:
+    """ingest/webhooks.py creates the case row itself, for durability, before
+    handle_failure ever runs — so from inside that function the row always
+    looks pre-existing, including on a payment's genuine first delivery. That
+    must not read as a repeat in the one record anyone is meant to trust."""
+    case_id = post(client, load("payment_failed_netbanking")).json()["case_id"]
+    ingest = next(
+        r for r in client.store.timeline(case_id) if r.decision_type == "ingest"
+    )
+    assert ingest.action == "case-opened"
+
+
 def test_a_novel_error_reason_is_held_for_a_human_not_retried(client) -> None:
     event = load("payment_failed_netbanking")
     event["payload"]["payment"]["entity"]["error_reason"] = "DECLINED - AP RULE 7A"

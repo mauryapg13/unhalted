@@ -370,3 +370,45 @@ regardless of when in the conversation it was made.
 reads as a constant until the one day it visibly isn't. Nothing about the realignment tests caught
 this because none of them varied `now`'s time of day; they only varied the promised date, so the
 line reusing the wrong half of `now` never had a reason to disagree with itself.
+
+---
+
+### A redelivered payment was scheduling a second, real retry
+**Date:** 2026-09-04
+
+**What happened:** building `scripts/inject.py` — a way to run one documented scenario through
+the real pipeline twice, to prove re-running the same one matched back to the same case rather
+than duplicating it — the case matched correctly, and had **two** pending retries. Reproduced the
+same thing directly against the real webhook endpoint: one payment, two event ids, one case,
+two scheduled debits. Every case in `pending_actions` for a redelivered failure was carrying an
+extra live retry nobody had asked for.
+
+**Why:** `handle_failure` gated "should I diagnose and schedule this" on `open_case_or_get`'s
+`created` flag — true only for the call that inserted the case row. That flag answers "did I just
+create this row", which is a different question from "has this signal actually been worked yet",
+and the gap between the two was invisible until `ingest/webhooks.py`'s own architecture was
+considered: it calls `store.open_case(signal)` itself, for durability, *before* it ever calls
+`handle_failure` — so by the time `handle_failure` runs, the row already exists regardless of
+whether this is a payment's first delivery or its fifth. `created` reads False every time through
+the real endpoint, on purpose, for a reason that had nothing to do with redelivery.
+
+That also meant the audit trail's own "case-opened" vs "signal already known" wording — added in an
+earlier pass specifically to stop the trail asserting an event that never happened — was wrong in
+the other direction the whole time: every genuine first-ever webhook delivery was being recorded
+as "signal already known", because the row already existed by the time the wording was decided.
+Nothing caught it because the tests written for that fix drove `handle_failure` directly, the way
+`scripts/session.py` does, never through a caller that pre-creates the case the way the real
+endpoint does.
+
+**What changed:** the gate and the wording are now the same question, asked once: does this case
+already have a diagnosis on record. That is true only once the agent has actually decided something
+about a case, regardless of which caller happened to insert its row first, so it correctly reads
+"case-opened" on a genuine first delivery even when `webhooks.py`'s durability step created the row
+a moment earlier, and correctly stops before diagnosing or scheduling again on an actual repeat.
+
+**The lesson:** "did this call create the row" and "has this thing been processed" look like the
+same fact right up until a second caller creates the row for a different reason first. The
+durability pre-creation in `webhooks.py` was added for an honest reason — a signal on disk before
+slow work starts — and nobody re-checked what it did to a flag a different function was reading
+for an unrelated decision three calls away. Found the same way the double-claim bug was: by
+actually running the scenario the architecture was supposed to handle, not by reasoning about it.

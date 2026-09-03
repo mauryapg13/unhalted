@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed
+- A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
+  and scheduling on whether *this call* had just created the case row, which is a different
+  question from whether the signal had actually been worked — `ingest/webhooks.py` creates that
+  row itself, for durability, before it ever calls `handle_failure`, so the row already existed on
+  every delivery including a payment's genuine first one. One payment under two event ids produced
+  two scheduled debits for a failure that happened once; the same first delivery was also
+  mislabelled "signal already known" in the audit trail, the opposite of what an earlier pass fixed
+  that wording to prevent. Both now key off whether a diagnosis has actually been recorded for the
+  case, which is true regardless of which caller created its row first. Found building
+  `scripts/inject.py`, reproduced directly against the real webhook endpoint.
+
 ### Added
+- `scripts/inject.py` and `scripts/classify.py` share `core/scenarios.py` — the same five
+  documented card reasons, once, rather than two lists that could quietly disagree.
+- `scripts/inject.py` — runs one of those five scenarios through the real pipeline: a real case,
+  a real recorded diagnosis, a real scheduled action, visible in the reviewer and scheduler
+  terminals exactly as any other case would be. Explicitly not a webhook, and says so on every run
+  — `scripts/classify.py` shows what the rule table *would* say without a case to show it on;
+  this is the other half, for showing several different real, audited cases without waiting on
+  `docs/capturing-fixtures.md`'s real capture procedure for each one.
 - `scripts/classify.py` — what the taxonomy says for five of Razorpay's own documented card
   error scenarios (`docs/capturing-fixtures.md`'s test-card table), called directly against
   `diagnose()`. Not a payment and not a case: the three fixtures actually captured on this account
