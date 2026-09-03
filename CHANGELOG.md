@@ -22,7 +22,8 @@
   terminals exactly as any other case would be. Explicitly not a webhook, and says so on every run
   — `scripts/classify.py` shows what the rule table *would* say without a case to show it on;
   this is the other half, for showing several different real, audited cases without waiting on
-  `docs/capturing-fixtures.md`'s real capture procedure for each one.
+  `docs/capturing-fixtures.md`'s real capture procedure for each one. Run it with no argument, or
+  `--list`, for a numbered menu rather than needing the exact reason string typed out.
 - `scripts/classify.py` — what the taxonomy says for five of Razorpay's own documented card
   error scenarios (`docs/capturing-fixtures.md`'s test-card table), called directly against
   `diagnose()`. Not a payment and not a case: the three fixtures actually captured on this account

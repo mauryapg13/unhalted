@@ -17,7 +17,7 @@ give quickly — showing several different real, audited cases without waiting
 on five separate captures.
 
     uv run python scripts/inject.py insufficient_fund
-    uv run python scripts/inject.py --list
+    uv run python scripts/inject.py --list        # numbered menu, choose interactively
 """
 
 from __future__ import annotations
@@ -35,24 +35,47 @@ from unhalted.store import Store
 AMOUNT_PAISE = 49900
 
 
+def choose(known: dict[str, str]) -> str | None:
+    """The numbered menu. Accepts a number or the reason itself; blank or EOF
+    exits without picking anything, the same as Ctrl-D anywhere else here."""
+    print("known scenarios (docs/capturing-fixtures.md's card table):")
+    numbered = list(known.items())
+    for i, (reason, gloss) in enumerate(numbered, start=1):
+        print(f"  {i}. {reason:<24} {gloss}")
+    print()
+    try:
+        raw = input("  choose a number, or type the reason: ").strip()
+    except EOFError:
+        return None
+    if not raw:
+        return None
+    if raw.isdigit() and 1 <= int(raw) <= len(numbered):
+        return numbered[int(raw) - 1][0]
+    if raw in known:
+        return raw
+    print(f"  not a known scenario or number: {raw!r}")
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("reason", nargs="?", help="one of the scenarios below")
-    ap.add_argument("--list", action="store_true", help="print the scenarios and exit")
+    ap.add_argument("reason", nargs="?", help="one of the scenarios below; omit to choose")
+    ap.add_argument("--list", action="store_true",
+                    help="same as omitting the reason: show the menu and choose")
     ap.add_argument("--at", metavar="'YYYY-MM-DD HH:MM'",
                     help="rehearse against this time (IST). Announces itself.")
     args = ap.parse_args()
 
     known = dict(SCENARIOS)
-    if args.list or not args.reason:
-        print("known scenarios (docs/capturing-fixtures.md's card table):")
-        for reason, gloss in SCENARIOS:
-            print(f"  {reason:<24} {gloss}")
-        return 0 if args.list else 1
+    reason = args.reason
+    if args.list or not reason:
+        reason = choose(known)
+        if reason is None:
+            return 1
 
-    if args.reason not in known:
-        print(f"not a known scenario: {args.reason!r}. Run --list to see them.")
+    if reason not in known:
+        print(f"not a known scenario: {reason!r}. Run --list to see them.")
         return 1
 
     try:
@@ -71,13 +94,13 @@ def main() -> int:
 
     store = Store(config.database_path())
     signal = FailureSignal(
-        payment_id=f"pay_INJECTED_{args.reason}",
-        customer_ref=f"cust_injected_{args.reason}",
+        payment_id=f"pay_INJECTED_{reason}",
+        customer_ref=f"cust_injected_{reason}",
         amount_paise=AMOUNT_PAISE,
         occurred_at=now,
         source="inject",
         method=METHOD,
-        error_reason=args.reason,
+        error_reason=reason,
         error_source=ERROR_SOURCE,
     )
     existing = store.case_for_payment(signal.payment_id)
@@ -85,7 +108,7 @@ def main() -> int:
     diagnosis = store.latest_diagnosis(case.id)
 
     print()
-    print(f"  {tui.paint(args.reason, tui.BOLD)} — {known[args.reason]}")
+    print(f"  {tui.paint(reason, tui.BOLD)} — {known[reason]}")
     if existing:
         print(f"  {tui.paint('already existed; matched back to it, not duplicated', tui.DIM)}")
     print(f"  {case.id}   state={case.state.value}")

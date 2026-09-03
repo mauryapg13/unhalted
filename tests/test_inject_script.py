@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -39,6 +40,42 @@ def store(tmp_path):
 def test_every_scenario_is_a_known_reason(inject) -> None:
     """The script's own list must not drift from the shared source of truth."""
     assert set(inject.SCENARIOS) == set(SCENARIOS)
+
+
+def test_choosing_by_number_returns_the_matching_reason(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", return_value="1"):
+        assert inject.choose(known) == inject.SCENARIOS[0][0]
+
+
+def test_choosing_by_name_works_too(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", return_value="authentication_failed"):
+        assert inject.choose(known) == "authentication_failed"
+
+
+def test_a_blank_answer_exits_without_picking_anything(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", return_value=""):
+        assert inject.choose(known) is None
+
+
+def test_eof_exits_the_same_way_a_blank_answer_does(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", side_effect=EOFError):
+        assert inject.choose(known) is None
+
+
+def test_an_out_of_range_number_is_refused_not_misread(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", return_value="99"):
+        assert inject.choose(known) is None
+
+
+def test_gibberish_is_refused(inject) -> None:
+    known = dict(inject.SCENARIOS)
+    with patch("builtins.input", return_value="not a real thing"):
+        assert inject.choose(known) is None
 
 
 def test_injecting_one_produces_a_real_diagnosed_case(inject, store) -> None:
