@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Fixed
+- The baseline is three retry models, not one. Razorpay documents UPI, cards and emandate as
+  separate tabs and they do not agree: UPI is T+1/T+2/T+3 then halted, cards are "thrice, once
+  every day for 3 days", and emandate states **no retry count at all** — the next attempt waits on
+  the previous one settling, "as it may take more than 24 hours", with bank-holiday shifting to T-1
+  or T-3. Applying the UPI model to all three was an assumption nobody had checked. The emandate
+  count is now declared as assumed via `assumption_used`, at the fastest interval their wording
+  permits, which is the reading that cannot inflate the agent's advantage.
+- NPCI's execution bands are counted only where they apply. They govern **UPI Autopay**;
+  `windows.py` said exactly that in its own docstring while the code applied them to every method,
+  so the baseline was charged with violations on rails the rule does not reach. The 300-case batch's
+  figure falls from 315 to 117, and a mandate-heavy 400-case mix from 705 to 213. The README and the
+  batch report are corrected. The agent's own scheduler still applies the bands universally, which
+  is conservative rather than correct — raised as #30 rather than changed here, because it needs to
+  be right about three rails and one of them wants a bank-holiday calendar.
+
+### Fixed
 - The taxonomy now reads Razorpay's **recurring** error tables, not only `errors/payments`. Their
   emandate reference documents a "Subsequent Payments" section — a mandate debit failing after
   registration, which is the exact event this product exists for — and the generator had never

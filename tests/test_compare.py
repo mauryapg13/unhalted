@@ -83,12 +83,22 @@ def test_both_columns_start_from_the_same_moment(balance) -> None:
     assert first_baseline.at - first_agent.at == timedelta(days=1)
 
 
-def test_the_baseline_retries_land_inside_a_restricted_band(balance) -> None:
-    """Not asserted — checked against the same window rule the shell uses."""
-    assert balance.base.attempts_in_restricted_window == 3
-    for event in balance.events:
+def test_the_baseline_retries_land_inside_a_restricted_band(tmp_path) -> None:
+    """Not asserted — checked against the same window rule the shell uses.
+
+    On UPI, because NPCI's execution bands govern UPI Autopay and nothing else.
+    """
+    upi = build(signal(method="upi"), str(tmp_path / "upi.db"))
+    assert upi.base.attempts_in_restricted_window == 3
+    for event in upi.events:
         if event.baseline.startswith("DEBIT ATTEMPT"):
             assert not is_execution_allowed(event.at).allowed
+
+
+def test_a_card_baseline_is_not_charged_with_npci_violations(balance) -> None:
+    """The `balance` fixture is a card. Cards do not route through UPI Autopay."""
+    assert balance.signal.method == "card"
+    assert balance.base.attempts_in_restricted_window == 0
 
 
 def test_the_agent_never_lands_inside_a_restricted_band(balance) -> None:

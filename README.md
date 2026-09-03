@@ -144,10 +144,14 @@ regenerated with `uv run python scripts/run_batch.py`.
 |---|---:|---:|---|
 | Debit attempts scheduled | 217 | 900 | 683 fewer |
 | Attempts a retry provably cannot fix | 0 | 108 | 108 avoided |
-| Attempts inside NPCI restricted bands | 0 | 315 | 315 avoided |
+| Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided, UPI only |
 | Customer contacts | 56 | 0 | the baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | the baseline has no such path |
 | Diagnoses requiring a model call | **0 of 300** | — | inference spend ₹0.00 |
+
+NPCI's execution bands govern **UPI Autopay** and nothing else, so only the UPI share of the
+baseline's attempts is counted against them. An earlier version of this table said 315 by applying
+the rule to cards and emandate too, which credited this system with an advantage it does not have.
 
 That last row is the architecture appearing as a count rather than a claim: every failure in
 Razorpay's documented taxonomy resolved deterministically, so inference cost nothing because

@@ -1,6 +1,6 @@
 # Batch measurement
 
-Generated 2026-09-02 20:05 UTC · 300 cases ·
+Generated 2026-09-03 08:49 UTC · 300 cases ·
 Rs 120,850 at risk
 
 ## What this batch is
@@ -31,7 +31,7 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 |---|---|---|---|
 | Debit attempts scheduled | 217 | 900 | 683 fewer |
 | Attempts a retry could not fix | 0 | 108 | 108 avoided |
-| Attempts inside NPCI restricted bands | 0 | 315 | 315 avoided |
+| Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided |
 | Customer contacts | 56 | 0 | baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | baseline has no such path |
 | Cases closed as uneconomic | 0 | 0 | unreachable at entry rungs; see below |
@@ -94,9 +94,9 @@ whatever was generated. What *is* countable is how much the choice matters.
 
 | Band | Cases | Share |
 |---|---:|---:|
-| `0.70-0.89 sampled` | 68 | 23% |
+| `0.70-0.89 sampled` | 89 | 30% |
 | `<0.70 held` | 27 | 9% |
-| `>=0.90 auto` | 205 | 68% |
+| `>=0.90 auto` | 184 | 61% |
 
 ## Part two — modelled, and not a measurement
 
