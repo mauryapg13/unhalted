@@ -283,3 +283,40 @@ response body carried the answer the whole time in a field nobody had thought to
 using the system, and every one of these was found by using it *the way somebody else would*. The
 suite tests the replies we wrote. Nobody had sent it three emoji, a 6,000-character message, pure
 Devanagari, or a reply that quotes the parser's own output schema back at it.
+
+---
+
+### The lease read its own claim back by a key that was not unique
+**Date:** 2026-09-03
+
+**What happened:** Asked whether one worker would really be enough at scale, I tested it instead of
+arguing: four OS processes leasing from one SQLite file. **386 of 400 actions were claimed twice**,
+and one worker reported claiming 1,470 of the 400 that existed.
+
+**Why:** `lease_due_actions` did the claim and the read as two statements — `UPDATE ... SET
+leased_until = ?, worker = ?` and then `SELECT ... WHERE worker = ? AND leased_until = ?`. That
+pair is not a unique key. A worker claiming twice inside one lease window computes the same
+`leased_until` both times, so its second read returns the first batch as well, cumulatively. Two
+workers whose clocks agree collide outright.
+
+Every duplicate would have been a debit attempted twice.
+
+The module's own docstring says, in the paragraph directly above the bug: *"selecting first and
+updating after is how the same retry gets handed to two workers; this repository has already
+shipped one check-then-act race and does not need a second."* I wrote that, and then wrote the
+race, because I was thinking about the ordering of the two statements and not about whether the key
+joining them identified anything.
+
+**What changed:** `UPDATE ... RETURNING *`. Claim and read are now one statement, so there is no
+key to get wrong. Four processes, 400 actions, zero double-claims, and a test in
+`tests/test_store_concurrency.py` that runs real subprocesses — threads share this process's Store
+and its lock, so they cannot show what two deployed workers would do.
+
+Also added `PRAGMA busy_timeout = 5000`. SQLite fails a locked write immediately by default, and
+with several workers a claim will sometimes arrive while another holds the write lock. That test
+passed without it only because the contended window is short.
+
+**The lesson:** a comment describing a hazard is not a defence against it. The docstring named this
+exact failure and sat six lines above the code that committed it. What caught it was somebody
+asking a sceptical question about scale, and the decision to answer with a test rather than an
+argument — which took four minutes and would have taken a production incident otherwise.

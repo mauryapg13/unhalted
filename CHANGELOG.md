@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+- The action lease claimed and read in two statements, joined by `(worker, leased_until)` — a key
+  that is not unique. A worker claiming twice inside one lease window re-read its earlier batch, and
+  two workers with agreeing clocks collided. Four processes over 400 actions produced **386
+  double-claims**, each of which would have been a debit attempted twice. Claim and read are now one
+  `UPDATE ... RETURNING`, so there is no key to get wrong.
+- `PRAGMA busy_timeout = 5000`. SQLite fails a locked write immediately by default; with more than
+  one worker a claim will sometimes arrive while another holds the write lock, and returning
+  `SQLITE_BUSY` to the caller would turn ordinary contention into a failed recovery action.
+- `tests/test_store_concurrency.py` now runs real subprocesses for this. Threads share the test
+  process's `Store` and its lock, so they cannot demonstrate what two deployed workers would do.
+
 ### Added
 - A runner. `pending_actions` had three writers and nothing that executed one, so a retry scheduled
   for 13:00 was a row recording an intention and 13:00 arrived and nothing happened. `unhalted

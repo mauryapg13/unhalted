@@ -127,6 +127,13 @@ class Store:
         # survive the power going out, because Razorpay will not redeliver
         # forever and a lost case is money nobody chases.
         self._conn.execute("PRAGMA synchronous = FULL")
+        # SQLite defaults to failing a locked write immediately. WAL lets many
+        # readers run beside one writer, but writers still serialise, so with
+        # more than one worker process a claim can arrive while another holds
+        # the write lock. Waiting is right here: the contended window is a
+        # single short transaction, and returning SQLITE_BUSY to the caller
+        # would turn ordinary contention into a failed recovery action.
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA)
         self._add_missing_columns()
         self._conn.commit()
@@ -426,17 +433,20 @@ class Store:
     ) -> list[dict[str, Any]]:
         """Claim the actions that are due, so no other worker takes them.
 
-        Claim and read are one transaction. Selecting first and updating after
-        is the classic way to hand the same retry to two workers, and this
-        project has already shipped one check-then-act race — see the
-        concurrency note in `_open_case_locked`.
+        Claim and read are **one statement**, via `UPDATE ... RETURNING`. An
+        earlier version updated and then selected back by `(worker,
+        leased_until)`, which is not a unique key: the same worker claiming
+        twice within one lease window read its earlier batch again, and two
+        workers computing the same expiry collided outright. Four processes over
+        400 actions produced 386 double-claims — every one of which would have
+        been a debit attempted twice.
 
-        Returns the rows as claimed. An empty list means nothing is due, which
-        is the normal case and not a condition worth logging.
+        `RETURNING` removes the second query rather than making it more careful,
+        which is the only version of this that cannot drift back.
         """
         until = (now + lease_for).isoformat()
         with self._tx() as conn:
-            conn.execute(
+            rows = conn.execute(
                 "UPDATE pending_actions"
                 " SET state = 'leased', leased_until = ?, worker = ?,"
                 "     attempts = attempts + 1"
@@ -447,14 +457,9 @@ class Store:
                 "      AND scheduled_for <= ?"
                 "    ORDER BY scheduled_for"
                 "    LIMIT ?"
-                " )",
+                " )"
+                " RETURNING *",
                 (until, worker, now.isoformat(), limit),
-            )
-            rows = conn.execute(
-                "SELECT * FROM pending_actions"
-                " WHERE state = 'leased' AND worker = ? AND leased_until = ?"
-                " ORDER BY scheduled_for",
-                (worker, until),
             ).fetchall()
         return [dict(r) for r in rows]
 

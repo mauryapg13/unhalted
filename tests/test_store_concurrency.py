@@ -112,3 +112,77 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
         assert len(reopened.pending_actions(case_id=case.id)) == 2
     finally:
         reopened.close()
+
+
+# --- leasing across processes (#31) -----------------------------------------
+#
+# Threads share this module's Store and its lock, so they cannot show what two
+# *deployed* workers would do. These use real processes against one file.
+
+
+def _claim_in_a_separate_process(path, name, due_iso, queue):  # pragma: no cover
+    """Runs in a child process, so it must be importable at module level."""
+    from datetime import datetime, timedelta
+
+    from unhalted.store import Store
+
+    due = datetime.fromisoformat(due_iso)
+    store = Store(path)
+    claimed = []
+    try:
+        for _ in range(20):
+            rows = store.lease_due_actions(
+                due, worker=name, lease_for=timedelta(minutes=5), limit=7
+            )
+            if not rows:
+                break
+            claimed.extend(int(r["id"]) for r in rows)
+        queue.put((name, claimed, None))
+    except Exception as exc:  # noqa: BLE001 - the child reports, the parent asserts
+        queue.put((name, [], f"{type(exc).__name__}: {exc}"))
+    finally:
+        store.close()
+
+
+def test_four_processes_never_claim_the_same_action(tmp_path) -> None:
+    """The regression that matters most in this file.
+
+    An earlier lease read its claim back with `WHERE worker = ? AND
+    leased_until = ?`, which is not a unique key — the same worker claiming
+    twice inside one window re-read its earlier batch. Four processes over 400
+    actions produced 386 double-claims, and every one would have been a debit
+    attempted twice. `UPDATE ... RETURNING` makes claim and read one statement.
+    """
+    import multiprocessing as mp
+    from datetime import timedelta
+
+    path = str(tmp_path / "mw.db")
+    now = datetime(2026, 9, 3, 10, 0, tzinfo=IST)
+    due = now + timedelta(days=2)
+
+    store = Store(path)
+    for i in range(60):
+        case = handle_failure(store, signal(900 + i), now=now)
+        store.schedule_action(case.id, case.customer_ref, "nudge", now, now)
+    expected = len(store.pending_actions())
+    store.close()
+
+    ctx = mp.get_context("spawn")
+    queue = ctx.Queue()
+    workers = [
+        ctx.Process(target=_claim_in_a_separate_process,
+                    args=(path, f"w{i}", due.isoformat(), queue))
+        for i in range(4)
+    ]
+    for w in workers:
+        w.start()
+    results = [queue.get(timeout=60) for _ in workers]
+    for w in workers:
+        w.join(timeout=60)
+
+    errors = [e for _, _, e in results if e]
+    assert not errors, f"a worker failed: {errors}"
+
+    all_claims = [i for _, claims, _ in results for i in claims]
+    assert len(all_claims) == len(set(all_claims)), "an action was claimed twice"
+    assert len(set(all_claims)) == expected, "some actions were never claimed"
