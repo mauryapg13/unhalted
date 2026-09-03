@@ -20,6 +20,7 @@ where it can be tested, not in a prompt where it can drift.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -31,12 +32,26 @@ from unhalted.models import DetectedIntent, Intent, ParsedReply, Sentiment
 
 log = logging.getLogger("unhalted.core.reply")
 
-#: The endpoint intermittently returns a 200 with null content — OpenRouter
-#: routes one model across providers and they do not all behave alike. Observed
-#: once in seven calls during evaluation. Retried, and a persistent empty
-#: response degrades to a failed parse rather than an exception.
+#: A genuinely empty 200 is retried; the same input can route to a different
+#: provider and come back fine. What is *not* retried is a response cut off at
+#: the token ceiling — see `MAX_TOKENS`.
 ATTEMPTS = 3
-TIMEOUT_SECONDS = 60
+
+#: Read timeout per network operation, plus a whole-call ceiling. httpx's plain
+#: `timeout=` is per-operation, so a slow stream can hold a worker far longer
+#: than the number suggests: one call during testing took 611 seconds under a
+#: nominal 45.
+TIMEOUT_SECONDS = 30
+TOTAL_TIMEOUT_SECONDS = 90
+
+#: This model reasons before it answers, and spends the completion budget doing
+#: it. At 1200 a reply carrying several intents parses one time in three: the
+#: budget runs out mid-thought and `content` comes back truncated or empty with
+#: `finish_reason: "length"`. Measured over 90 live calls, single-intent replies
+#: went 97% -> 100% and multi-intent 33% -> 93% on raising this to 4000, at
+#: *half* the cost per successful parse — a truncated call bills for every token
+#: it burned and returns nothing usable.
+MAX_TOKENS = 4000
 
 SYSTEM_PROMPT = """You read customer replies to a failed subscription payment and return structure.
 
@@ -83,11 +98,36 @@ def _extract(raw: str) -> dict:
     return json.loads(text.strip())
 
 
-def _call_model(reply: str, context: str) -> tuple[str | None, str | None, int]:
-    """Returns (content, failure_reason, attempts_made)."""
+@dataclasses.dataclass(frozen=True)
+class ModelCall:
+    """What one or more attempts at the endpoint produced."""
+
+    content: str | None
+    failure_reason: str | None
+    attempts: int
+    #: From OpenRouter's own `usage.cost`, summed over every attempt made —
+    #: including the ones that returned nothing, because those are billed too.
+    cost_usd: float = 0.0
+    truncated: bool = False
+
+
+def _quotes_the_reply(evidence: str, reply: str) -> bool:
+    """Does this span actually appear in what the customer wrote?
+
+    Whitespace and case are normalised because models re-space and re-capitalise
+    a quote without changing which words it contains. Anything beyond that is a
+    paraphrase or an invention, and neither is evidence.
+    """
+    if not evidence.strip():
+        return False
+    squash = " ".join(evidence.split()).casefold()
+    return squash in " ".join(reply.split()).casefold()
+
+
+def _call_model(reply: str, context: str) -> ModelCall:
     key = config.model_api_key()
     if not key:
-        return None, "no model API key configured", 0
+        return ModelCall(None, "no model API key configured", 0)
 
     user = f"{context}\n\nCustomer reply:\n{reply}" if context else reply
     body = {
@@ -96,18 +136,19 @@ def _call_model(reply: str, context: str) -> tuple[str | None, str | None, int]:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user},
         ],
-        "max_tokens": 1200,
+        "max_tokens": MAX_TOKENS,
         "temperature": 0,
     }
 
     last = "unknown"
+    spent = 0.0
     for attempt in range(ATTEMPTS):
         try:
             r = httpx.post(
                 f"{config.model_base_url()}/chat/completions",
                 headers={"Authorization": f"Bearer {key}"},
                 json=body,
-                timeout=TIMEOUT_SECONDS,
+                timeout=httpx.Timeout(TIMEOUT_SECONDS, read=TOTAL_TIMEOUT_SECONDS),
             )
         except httpx.HTTPError as e:
             last = f"transport error: {e}"
@@ -119,13 +160,33 @@ def _call_model(reply: str, context: str) -> tuple[str | None, str | None, int]:
             log.warning("reply parse attempt %d: %s", attempt + 1, last)
             continue
 
-        content = (r.json().get("choices") or [{}])[0].get("message", {}).get("content")
+        payload = r.json()
+        choice = (payload.get("choices") or [{}])[0]
+        spent += float((payload.get("usage") or {}).get("cost") or 0.0)
+        content = choice.get("message", {}).get("content")
+
+        # Cut off at the ceiling. Retrying is pointless at temperature 0 — the
+        # same input runs out of budget the same way — and it bills three times
+        # for one deterministic failure. Report the real cause instead: the
+        # response says `length` on every one of these, and reading it is the
+        # difference between fixing a budget and blaming a provider.
+        if choice.get("finish_reason") == "length":
+            log.warning("reply parse attempt %d: truncated at max_tokens", attempt + 1)
+            return ModelCall(
+                None,
+                f"response truncated at max_tokens={MAX_TOKENS} (finish_reason=length)",
+                attempt + 1,
+                spent,
+                truncated=True,
+            )
+
         if content and content.strip():
-            return content, None, attempt + 1
+            return ModelCall(content, None, attempt + 1, spent)
+
         last = "model returned empty content"
         log.warning("reply parse attempt %d: empty content", attempt + 1)
 
-    return None, last, ATTEMPTS
+    return ModelCall(None, last, ATTEMPTS, spent)
 
 
 def parse(reply: str, *, context: str = "") -> ParsedReply:
@@ -142,31 +203,46 @@ def parse(reply: str, *, context: str = "") -> ParsedReply:
         prompt_hash=prompt_hash(),
     )
 
-    content, failure, attempts = _call_model(reply, context)
-    if content is None:
+    call = _call_model(reply, context)
+    if call.content is None:
         return base.model_copy(
-            update={"failed": True, "failure_reason": failure, "attempts": attempts}
+            update={
+                "failed": True,
+                "failure_reason": call.failure_reason,
+                "attempts": call.attempts,
+                "cost_usd": call.cost_usd,
+            }
         )
 
     try:
-        data = _extract(content)
+        data = _extract(call.content)
     except (json.JSONDecodeError, ValueError) as e:
         return base.model_copy(
             update={
                 "failed": True,
                 "failure_reason": f"model returned unparseable JSON: {e}",
-                "attempts": attempts,
+                "attempts": call.attempts,
+                "cost_usd": call.cost_usd,
             }
         )
 
     intents: list[DetectedIntent] = []
     for raw_intent in data.get("intents") or []:
         try:
+            evidence = str(raw_intent.get("evidence") or "")
+            # The prompt requires a quote from the reply, and until now nothing
+            # checked. An empty span gives a reviewer no reason; an invented one
+            # shows them words the customer never wrote, with the same standing
+            # as a real quote. Dropped rather than coerced, exactly as an intent
+            # outside the closed set already is.
+            if not _quotes_the_reply(evidence, reply):
+                log.warning("dropping intent with unsupported evidence: %r", evidence)
+                continue
             intents.append(
                 DetectedIntent(
                     type=Intent(raw_intent["type"]),
                     confidence=float(raw_intent.get("confidence", 0.0)),
-                    evidence=str(raw_intent.get("evidence") or ""),
+                    evidence=evidence,
                 )
             )
         except (KeyError, ValueError, TypeError):
@@ -186,6 +262,7 @@ def parse(reply: str, *, context: str = "") -> ParsedReply:
             "payment_date_raw": data.get("payment_date_raw") or None,
             "condition": data.get("condition") or None,
             "sentiment": sentiment,
-            "attempts": attempts,
+            "attempts": call.attempts,
+            "cost_usd": call.cost_usd,
         }
     )

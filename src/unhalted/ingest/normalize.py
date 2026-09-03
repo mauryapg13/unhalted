@@ -19,6 +19,16 @@ class UnsupportedEvent(ValueError):
     """The payload is well-formed but is not a failure this pipeline handles."""
 
 
+#: Every rule downstream is Indian: NPCI's execution windows, the rupee
+#: ceilings, the recurring-mandate limits, the ladder's costs. None of it means
+#: anything for a debit in another currency, and Razorpay does accept non-INR
+#: orders — a USD one was created on this account during testing. Refusing at
+#: the door is honest; converting would invent an exchange rate, and carrying
+#: the field unread let $499 be reported as Rs 499 through the limits and the
+#: expected-value gate alike.
+SUPPORTED_CURRENCY = "INR"
+
+
 def pseudonymise(value: str) -> str:
     """A stable, non-reversible reference for a customer identifier.
 
@@ -48,6 +58,15 @@ def from_payment_failed(event: dict[str, Any]) -> FailureSignal:
     if not isinstance(amount, int):
         raise UnsupportedEvent(f"payment amount is not an integer: {amount!r}")
 
+    currency = payment.get("currency") or SUPPORTED_CURRENCY
+    if currency != SUPPORTED_CURRENCY:
+        raise UnsupportedEvent(
+            f"{payment_id} is in {currency}; this pipeline reasons only about "
+            f"{SUPPORTED_CURRENCY}. NPCI windows, the rupee ceilings and the "
+            f"intervention costs are all Indian, and applying them to another "
+            f"currency would compare unlike numbers"
+        )
+
     identifier = (
         payment.get("customer_id")
         or payment.get("vpa")
@@ -71,7 +90,7 @@ def from_payment_failed(event: dict[str, Any]) -> FailureSignal:
         order_id=payment.get("order_id"),
         customer_ref=customer_ref,
         amount_paise=amount,
-        currency=payment.get("currency") or "INR",
+        currency=currency,
         method=payment.get("method"),
         error_code=payment.get("error_code"),
         error_reason=payment.get("error_reason"),

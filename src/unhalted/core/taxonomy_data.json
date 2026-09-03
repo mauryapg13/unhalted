@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-31T17:23:41+00:00",
+  "generated_at": "2026-09-03T07:51:59+00:00",
   "generated_from": {
     "commit": "7fd0dafa8e271bb6cc10644642cae32f4afdd9b4",
     "committed_at": "2026-04-08T14:31:43Z",
@@ -770,6 +770,116 @@
         "source": "cards.md"
       }
     },
+    "emandate": {
+      "bank_account_invalid": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer's bank account is either closed or no longer valid. The customer or bank could have closed the account.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "bank_account_validation_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The bank could not validate the customer registration for debiting the customer.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "bank_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The destination bank was facing technical problems at the moment the payment was attempted. This usually occurs when the Core Banking System encounters a technical error while processing the payment.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "debit_instrument_blocked": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Withdrawals on the customer's account are temprarily blocked by the bank.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "debit_instrument_inactive": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Withdrawals on the customer's account are temprarily blocked by the bank.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "gateway_technical_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment failed due to a technical error at the gateway. This usually occurs when the gateway server encounters a technical error while processing the payment.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "incorrect_ifsc": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The bank IFSC code is no longer valid.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "input_validation_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Payment failed due to wrong request or input sent in the payment request. This is also seen while creating a payment with incorrect parameter values on the Dashboard.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "insufficient_funds": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer does not have sufficient funds in the account to complete the payment.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "invalid_amount": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Amount or currency passed in the payment request is not supported or invalid. This can arise when you pass a different variable type in the amount field or pass an unsupported amount value.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "mandate_not_active": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The registered mandate is no longer active. The customer or bank could have cancelled the mandate.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "payment_cancelled": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customer has explicitly cancelled the payment. The customer could have given a cancellation instruction to their banks.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "payment_declined": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Destination Bank or Gateway has declined the payment due to business or technical reasons. The exact reason in this case is not communicated to Razorpay.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "payment_failed": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Destination Bank or Gateway has declined the payment due to business or technical reasons. The exact reason in this case is not communicated to Razorpay.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "payment_mandate_not_active": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The registered mandate is not yet activated at the bank. Banks sometimes take longer to activate the mandates at their end.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "payment_timed_out": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The bank where the mandate is registered could not debit the customer's account in time.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "server_error": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "Technical error at Razorpay's server. This usually occurs when there is some server issue at Razorpay's end.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      },
+      "transaction_limit_exceeded": {
+        "cause_names": [],
+        "causes": 1,
+        "description": "The customers have exceeded the credit or debit limit set on their accounts. This error usually arises while doing high value transactions.",
+        "source": "payments/recurring-payments/emandate/errors.md#Subsequent Payments"
+      }
+    },
     "upi": {
       "bank_technical_error": {
         "cause_names": [],
@@ -852,6 +962,7 @@
     "reasons_by_method": {
       "any": 110,
       "card": 16,
+      "emandate": 18,
       "upi": 10
     }
   }

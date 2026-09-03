@@ -321,6 +321,10 @@ def handle_reply(
                 "sentiment": parsed.sentiment.value,
                 "date_proposed": parsed.payment_date_raw,
                 "attempts": parsed.attempts,
+                # What this reading cost, from the provider's own figure. On the
+                # audit record because a decision's price belongs beside the
+                # decision, not in a report that has to reconstruct it.
+                "cost_usd": round(parsed.cost_usd, 6),
             },
             rules_fired=outcome.rules_fired,
             rule_version=outcome.rule_version,

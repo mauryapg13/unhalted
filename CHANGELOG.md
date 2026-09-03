@@ -3,6 +3,41 @@
 ## [Unreleased]
 
 ### Fixed
+- The taxonomy now reads Razorpay's **recurring** error tables, not only `errors/payments`. Their
+  emandate reference documents a "Subsequent Payments" section — a mandate debit failing after
+  registration, which is the exact event this product exists for — and the generator had never
+  opened it. Eight reasons had no rule, `mandate_not_active` among them. Money the system can
+  defensibly claim on a mandate-heavy book went from 17% to 26% of everything at risk, and cases
+  reaching a human fell from 29% to 14%. Closes #28.
+- `payment_failed` no longer reaches full confidence from any source. It was marked `DIRECT`,
+  meaning Razorpay's description states the class; their description says the opposite — "the exact
+  reason in this case is not communicated to Razorpay". It is the commonest reason on the account
+  and two of its sources put it in the highest autonomy band. Also keyed on `issuer_bank`, the
+  value their emandate reference actually emits, where we had guessed `issuer`. Closes #29.
+- Confidence no longer rises when the payment method is unknown. `documented_causes` fell through
+  to the method-agnostic list, which records one cause for everything because it has no method to
+  attribute to — so an unknown method scored 0.8 and auto-executed where UPI scored 0.4 and held.
+  Unknown and unmapped methods now take the worst documented count across the methods Razorpay does
+  publish a table for. Closes #23.
+- Replies carrying several intents parsed one time in three. The completion budget ran out before
+  the model emitted anything, and `finish_reason: "length"` — present on every such response, read
+  by nothing — was the cause that `BREAKAGE.md` had attributed to provider routing. `max_tokens` is
+  4000, a truncated response is reported as truncated, and it is no longer retried: at temperature 0
+  it fails identically three times and bills for each. Measured over 90 live calls, multi-intent
+  parses went 33% to 93% at half the cost per successful parse. Closes #22.
+- Evidence spans are checked against the reply. They were documented as required and defaulted to
+  the empty string, so a reviewer could be shown words the customer never wrote with the same
+  standing as a quote. Closes #25.
+- Payments in a currency other than INR are refused at ingest instead of being read as rupees.
+  Razorpay accepts non-INR orders; a USD one was created on this account while testing, and $499
+  flowed through the ceilings and the expected-value gate as Rs 499. Closes #24.
+- Inference spend is recorded. `usage.cost` was read in one health check and nowhere in the product,
+  so the report's spend line was a constant. It is now carried on `ParsedReply` and written to the
+  audit record — including for calls that returned nothing, which are billed too. Closes #26.
+- A whole-call timeout. `TIMEOUT_SECONDS` was a per-operation read timeout, and one call during
+  testing held a worker for 611 seconds under a nominal 45.
+
+### Fixed
 - Recorded, not yet fixed: an exploratory pass against the live endpoint and the real Razorpay
   account found five defects the suite does not cover — reply truncation at `max_tokens` (#22),
   confidence rising when the payment method is unknown (#23), currency recorded and never read

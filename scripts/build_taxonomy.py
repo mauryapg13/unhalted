@@ -37,6 +37,21 @@ METHOD_DOCS = {"card": "cards.md", "upi": "upi.md"}
 #: The comprehensive list, which has no method attribution.
 LIST_DOC = "list.md"
 
+#: Razorpay documents recurring failures separately from one-off payments, and
+#: a mandate debit failing after registration is the case this product exists
+#: for. Reading only `errors/payments` missed it entirely. The section matters:
+#: the same file also lists *registration* failures, which are a different
+#: event — the customer never got a mandate at all.
+RECURRING_DOCS = {
+    "emandate": {
+        "path": "payments/recurring-payments/emandate",
+        "file": "errors.md",
+        "section": "Subsequent Payments",
+    },
+}
+#: Below this and the section parse is not being trusted.
+MIN_REASONS_IN_SECTION = 12
+
 HEADING = re.compile(r"^### (.+?)[ \t]*$", re.MULTILINE)
 SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
 DESCRIPTION = re.compile(r"\*\*Description\*\*:?\s*(.*)")
@@ -65,8 +80,48 @@ def docs_commit() -> dict[str, str]:
     return {"sha": c["sha"], "committed_at": c["commit"]["committer"]["date"]}
 
 
-def raw_url(sha: str, filename: str) -> str:
-    return f"https://raw.githubusercontent.com/{REPO}/{sha}/{DOC_PATH}/{filename}"
+def raw_url(sha: str, filename: str, path: str = DOC_PATH) -> str:
+    return f"https://raw.githubusercontent.com/{REPO}/{sha}/{path}/{filename}"
+
+
+def parse_section_table(text: str, section: str, source: str) -> dict[str, dict[str, Any]]:
+    """A `reason | explanation | next steps` table under one `## ` heading.
+
+    Scoped to the section because the file carries several, and a registration
+    failure is not a debit failure. Taking the whole file would mix them.
+    """
+    marker = re.search(rf"^#+\s*{re.escape(section)}\s*$", text, re.MULTILINE)
+    if marker is None:
+        raise ParseError(f"{source}: no '{section}' heading; the document shape changed")
+
+    rest = text[marker.end():]
+    following = re.search(r"^#{1,3} ", rest, re.MULTILINE)
+    block = rest[: following.start()] if following else rest
+
+    reasons: dict[str, dict[str, Any]] = {}
+    for line in block.splitlines():
+        if "|" not in line:
+            continue
+        head = line.split("|", 1)[0].strip().strip("`")
+        if not SNAKE.match(head):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        reasons[head] = {
+            # Their recurring tables give one explanation per reason. Where a
+            # reason is genuinely ambiguous they say so in prose, and that is
+            # a judgement for core/taxonomy.py, not a count to invent here.
+            "causes": 1,
+            "cause_names": [],
+            "description": (parts[1] if len(parts) > 1 else "")[:400],
+            "source": f"{source}#{section}",
+        }
+
+    if len(reasons) < MIN_REASONS_IN_SECTION:
+        raise ParseError(
+            f"{source}#{section}: parsed only {len(reasons)} reasons, expected at "
+            f"least {MIN_REASONS_IN_SECTION}. The document shape probably changed."
+        )
+    return reasons
 
 
 def parse_method_doc(text: str, filename: str) -> dict[str, dict[str, Any]]:
@@ -166,6 +221,13 @@ def build() -> dict[str, Any]:
         by_method[method] = parse_method_doc(fetch(raw_url(sha, filename)), filename)
 
     by_method["any"] = parse_list_doc(fetch(raw_url(sha, LIST_DOC)))
+
+    for method, spec in RECURRING_DOCS.items():
+        by_method[method] = parse_section_table(
+            fetch(raw_url(sha, spec["file"], spec["path"])),
+            spec["section"],
+            f"{spec['path']}/{spec['file']}",
+        )
 
     ambiguous = {
         f"{method}:{reason}": data["causes"]

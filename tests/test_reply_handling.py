@@ -154,3 +154,53 @@ def test_a_held_case_reports_the_date_today_correctly(store, case, monkeypatch) 
     )
     _, outcome = agent.handle_reply(store, case, "kal", now=NOW)
     assert outcome.realign_to is None, "a date in the past must be refused"
+
+
+# --- Findings from the exploratory pass -----------------------------------
+
+
+def test_evidence_that_does_not_quote_the_reply_is_dropped() -> None:
+    """Issue #25. An invented span is shown to a reviewer as if it were a quote."""
+    from unhalted.core.reply import _quotes_the_reply
+
+    reply = "salary aayega 5th ko, tab try karna"
+    assert _quotes_the_reply("salary aayega", reply)
+    assert _quotes_the_reply("SALARY   AAYEGA", reply), "spacing and case are not meaning"
+    assert not _quotes_the_reply("", reply)
+    assert not _quotes_the_reply("   ", reply)
+    assert not _quotes_the_reply("I will pay you next month", reply)
+
+
+def test_a_truncated_response_is_not_retried() -> None:
+    """Issue #22. At temperature 0 it truncates identically and bills each time."""
+    import httpx
+
+    from unhalted.core import reply as reply_mod
+
+    calls = {"n": 0}
+
+    class Truncated:
+        status_code = 200
+
+        def json(self) -> dict:
+            calls["n"] += 1
+            return {
+                "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+                "usage": {"cost": 0.0003},
+            }
+
+    def fake_post(*args, **kwargs):
+        return Truncated()
+
+    original = httpx.post
+    httpx.post = fake_post
+    try:
+        parsed = reply_mod.parse("cancel it. no wait, I'll pay on the 10th. STOP")
+    finally:
+        httpx.post = original
+
+    assert calls["n"] == 1, "a length finish must not be retried"
+    assert parsed.failed
+    assert "truncated" in parsed.failure_reason
+    assert "max_tokens" in parsed.failure_reason
+    assert parsed.cost_usd == 0.0003, "a call that returned nothing was still billed"

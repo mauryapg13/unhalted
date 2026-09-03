@@ -205,3 +205,25 @@ def test_the_signal_is_durable_before_any_processing_happens(client) -> None:
         assert seen["case_existed"], "the signal was not persisted before processing"
     finally:
         wh.handle_failure = real
+
+
+def test_a_payment_in_another_currency_is_refused_at_ingest() -> None:
+    """Issue #24. Razorpay accepts USD orders; every rule below here is Indian."""
+    import pytest
+
+    from unhalted.ingest.normalize import UnsupportedEvent, from_payment_failed
+
+    def event(currency: str) -> dict:
+        return {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {
+                "id": "pay_CUR", "amount": 49900, "currency": currency,
+                "method": "card", "error_reason": "insufficient_funds",
+                "contact": "+919845127634", "created_at": 1788381176,
+            }}},
+        }
+
+    assert from_payment_failed(event("INR")).amount_rupees == 499.0
+
+    with pytest.raises(UnsupportedEvent, match="USD"):
+        from_payment_failed(event("USD"))

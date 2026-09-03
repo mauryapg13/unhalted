@@ -82,12 +82,40 @@ def taxonomy_version() -> str:
 
 
 def documented_causes(method: str | None, reason: str) -> tuple[int, list[str]]:
-    """How many distinct root causes Razorpay documents for this reason."""
+    """How many distinct root causes Razorpay documents for this reason.
+
+    When the method is known and documented, its own count is the answer —
+    ambiguity is method-specific, which is the whole reason method is in the
+    key. `payment_timed_out` has one documented cause on cards and two on UPI.
+
+    When the method is absent, or is one Razorpay publishes no root-cause table
+    for, the honest answer is the **worst** count across the methods that do
+    document it. Falling through to the method-agnostic list instead — which
+    records one cause for everything, because it has no method to attribute to —
+    read the absence of a table as evidence of certainty, and made an unknown
+    method score higher than a known one. Knowing less must never buy more
+    autonomy.
+    """
     reasons = _data()["reasons"]
-    for scope in (method or "", "any"):
-        entry = reasons.get(scope, {}).get(reason)
-        if entry:
-            return entry["causes"], entry.get("cause_names", [])
+
+    entry = reasons.get(method or "", {}).get(reason)
+    if entry:
+        return entry["causes"], entry.get("cause_names", [])
+
+    documented = [
+        data
+        for scope, rs in reasons.items()
+        if scope != "any"
+        for r, data in rs.items()
+        if r == reason
+    ]
+    if documented:
+        worst = max(documented, key=lambda d: d["causes"])
+        return worst["causes"], worst.get("cause_names", [])
+
+    fallback = reasons.get("any", {}).get(reason)
+    if fallback:
+        return fallback["causes"], fallback.get("cause_names", [])
     return 1, []
 
 
@@ -117,15 +145,29 @@ TABLE: dict[tuple[str, str, str, str], Rule] = {
     ),
     # payment_failed carries no cause detail of its own; source is what says
     # whose problem it was.
+    # INFERRED, not DIRECT. Razorpay's own description of `payment_failed` says
+    # "declined due to business or technical reasons. The exact reason in this
+    # case is not communicated to Razorpay." A source narrows *who* declined,
+    # never *why* — and "business or technical" spans a dead mandate and plain
+    # downtime, which want opposite responses. Marking this DIRECT claimed their
+    # documentation stated a class it explicitly declines to state.
     (ANY, "payment_failed", "bank", ANY): Rule(
         DiagnosisClass.RECOVERABLE_TECHNICAL,
-        DIRECT,
-        "bank-side failure at authorisation; no customer action implied",
+        INFERRED,
+        "bank-side decline with no cause communicated to Razorpay; technical is the "
+        "likelier of the two they name, not the stated one",
     ),
     (ANY, "payment_failed", "issuer", ANY): Rule(
         DiagnosisClass.RECOVERABLE_TECHNICAL,
-        DIRECT,
-        "issuer-side failure at authorisation; no customer action implied",
+        INFERRED,
+        "issuer-side decline with no cause communicated to Razorpay",
+    ),
+    # Their emandate reference emits `issuer_bank`, not `issuer`. Keyed on the
+    # value they document rather than the one we guessed.
+    (ANY, "payment_failed", "issuer_bank", ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
+        "issuer-side decline with no cause communicated to Razorpay",
     ),
     # The four documented ambiguities. A concrete source resolves each of them;
     # without one, the reason alone cannot choose, and the cap holds.
@@ -248,6 +290,72 @@ TABLE: dict[tuple[str, str, str, str], Rule] = {
         DiagnosisClass.NOTIFICATION_GAP,
         DIRECT,
         "Razorpay: the customer did not act within the collect window",
+    ),
+    # ---------------------------------------------------------------------
+    # Emandate subsequent payments. Razorpay documents these in
+    # `payments/recurring-payments/emandate/errors.md`, which the taxonomy
+    # generator did not read until now — so a mandate debit failing, the exact
+    # event this product exists for, had eight reasons with no rule at all.
+    # ---------------------------------------------------------------------
+    # Their "Next Steps" column says re-register the mandate. That is
+    # mandate-state-broken by definition: no retry reaches a mandate that is
+    # gone, and re-authorisation is the only path.
+    (ANY, "mandate_not_active", ANY, ANY): Rule(
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
+        "Razorpay: the registered mandate is no longer active; the customer or bank "
+        "cancelled it, and they say the customer must re-register",
+    ),
+    (ANY, "bank_account_invalid", ANY, ANY): Rule(
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
+        "Razorpay: the account is closed or no longer valid; they say the customer "
+        "must re-register for the mandate",
+    ),
+    (ANY, "incorrect_ifsc", ANY, ANY): Rule(
+        DiagnosisClass.MANDATE_STATE_BROKEN,
+        DIRECT,
+        "Razorpay: the bank IFSC is no longer valid; they say the customer must "
+        "re-register for the mandate",
+    ),
+    # Distinct from `mandate_not_active` in the one way that matters: the
+    # mandate exists and the bank has simply not finished activating it. Their
+    # next step is to wait and retry, so a retry is the correct response and
+    # re-authorisation would be actively wrong.
+    (ANY, "payment_mandate_not_active", ANY, ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
+        "Razorpay: the mandate is not yet activated at the bank and banks sometimes "
+        "take longer; they say to retry after some time",
+    ),
+    (ANY, "bank_account_validation_failed", ANY, ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        INFERRED,
+        "Razorpay: the bank could not validate the registration for debiting; they "
+        "say to retry, so it is treated as transient rather than terminal",
+    ),
+    (ANY, "server_error", ANY, ANY): Rule(
+        DiagnosisClass.RECOVERABLE_TECHNICAL,
+        DIRECT,
+        "Razorpay: a technical error at their own server; nothing about the customer",
+    ),
+    # Deliberately held, like payment_risk_check_failed. Razorpay attributes
+    # both of these to the *merchant's* request, not to the customer or their
+    # bank. Every recovery class would send a message to a customer who has done
+    # nothing wrong about a bug on our side. The correct action is to stop and
+    # tell a person to fix the integration, and UNKNOWN routes there.
+    (ANY, "invalid_amount", ANY, ANY): Rule(
+        DiagnosisClass.UNKNOWN,
+        0.0,
+        "Razorpay: the amount or currency in the payment request is invalid. A "
+        "merchant-side integration fault, deliberately held rather than classified "
+        "— no customer should be contacted about it",
+    ),
+    (ANY, "input_validation_failed", ANY, ANY): Rule(
+        DiagnosisClass.UNKNOWN,
+        0.0,
+        "Razorpay: the payment request itself was wrong. A merchant-side integration "
+        "fault, deliberately held rather than classified",
     ),
 }
 

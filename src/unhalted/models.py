@@ -199,6 +199,11 @@ class ParsedReply(BaseModel):
     #: returned nothing usable and was retried — a reliability fact, distinct
     #: from whether the reading was right.
     attempts: int = 0
+    #: What those calls cost, from the provider's own reported `usage.cost`.
+    #: Failed parses carry a cost too: a call that returns nothing is still
+    #: billed, and a spend figure that omits them understates what the model
+    #: costs to run.
+    cost_usd: float = 0.0
     #: Set when the model could not be reached or returned nothing usable. The
     #: reply is preserved and queued; no intent is inferred from silence.
     failed: bool = False
