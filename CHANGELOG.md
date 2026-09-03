@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+- NPCI's execution bands are applied only to the rail they govern. `windows.py` opened by saying the
+  restriction is on **UPI Autopay** while the code applied it to every method, so card retries were
+  delayed for a regulation that does not reach them — and, worse, `WINDOW_VIOLATION` was written to
+  the audit trail for violations that never happened. The audit trail is the one account of events
+  this project asks anyone to trust; a rule recorded as fired when it did not apply is the kind of
+  thing that discredits everything beside it. `is_execution_allowed` and `next_allowed_execution`
+  now take a method, `schedule_retry` threads it through, and an unknown method keeps the
+  conservative reading: a card delayed wrongly costs hours, a UPI debit inside a band is a breach.
+  Closes #30.
+
+### Added
+- CI runs daily at 01:30 UTC — 07:00 IST — and on demand via `workflow_dispatch`. The drift check
+  against Razorpay's documentation previously ran only on `push` and `pull_request`, so it watched
+  for changes exactly when somebody was already working and never when they were not. Their
+  documentation does not wait for us to commit.
+
 ### Added
 - `unhalted breakeven` and `measure/outcomes.py` — the money argument, with nothing in it that is a
   forecast. Money is sorted by what each policy can *reach* using Razorpay's own error descriptions;

@@ -199,7 +199,9 @@ def handle_failure(
     # Backoff is the scheduler's business, not the loop's — it is a timing
     # policy and belongs beside the window rules that constrain it.
     wait = backoff_for(diagnosis.klass, case.retry_count)
-    decision = schedule_retry(now + wait, retry_count=case.retry_count, now=now)
+    decision = schedule_retry(
+        now + wait, retry_count=case.retry_count, now=now, method=signal.method
+    )
 
     # Recorded as pending work, not only as a line in the audit trail. A
     # scheduled retry that nothing tracks is one a stop rule cannot cancel: a

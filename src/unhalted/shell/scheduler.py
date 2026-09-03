@@ -84,6 +84,7 @@ def schedule_retry(
     retry_count: int,
     *,
     now: datetime | None = None,
+    method: str | None = None,
 ) -> ScheduleDecision:
     """Schedule a retry at or after `requested_at`, or refuse.
 
@@ -117,10 +118,13 @@ def schedule_retry(
         rules.append("NOT_IN_THE_PAST")
 
 
-    check = windows.is_execution_allowed(candidate)
+    # Scoped to the rail. NPCI's bands govern UPI Autopay, so a card retry is
+    # not moved and no violation is recorded against it — the audit trail should
+    # not say a rule fired when the rule did not apply.
+    check = windows.is_execution_allowed(candidate, method=method)
     if not check.allowed:
         rules.append(f"{check.code}:{check.reason}")
-        candidate = windows.next_allowed_execution(candidate)
+        candidate = windows.next_allowed_execution(candidate, method=method)
 
     return ScheduleDecision(
         scheduled_for=candidate,
