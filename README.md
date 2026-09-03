@@ -189,6 +189,7 @@ uv run unhalted cases                 # what is open, held, closed
 uv run unhalted case CASE-8EF53CCD    # one case, end to end
 uv run unhalted compare CASE-8EF53CCD # the same case under Razorpay's retry policy
 uv run unhalted queue                 # what is waiting on a person
+uv run unhalted breakeven             # what the money argument rests on
 uv run unhalted report                # the batch measurement
 uv run unhalted capabilities          # what this deployment can actually do
 ```

@@ -283,6 +283,31 @@ would be the batch report's dishonesty at case scale.
 
 **Ordering.** Worked before C10, because it changes what the video shows and the video is C10.
 
+---
+
+### C9c — The money question is answered without inventing an answer
+What the money argument rests on, stated so that nothing in it is a forecast.
+
+**Done when:** `unhalted breakeven` prints, from real stored cases or a batch: money sorted by what
+each policy can reach; the recovery rate at which the intervention repays its own cost; and the
+ceiling on what each policy could recover even at perfect conversion. Every figure is arithmetic on
+a measured cost and a documented failure class. No line in it is a recovery estimate.
+
+**Why it exists.** "How much money?" is the first question anyone asks, and this project cannot
+answer it — recovery needs real outcomes at volume, and whoever writes an outcome model decides the
+result. Breakeven inverts the unknown: instead of guessing the conversion rate and reporting the
+rupees, it reports the conversion rate at which the rupees stop being worth chasing. That is
+answerable, checkable, and a merchant can compare it against their own history in seconds.
+
+**Serves:** the question a judge asks first, and the one a merchant asks before deploying.
+
+**Not included:** rupees recovered as a point estimate, under any circumstances. A published
+benchmark borrowed from another market as a substitute for measurement — card-updater recovery in
+the US is a different mechanism from an Indian re-authorisation needing an MPIN, and citing one
+would be the same invention with a footnote attached.
+
+---
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 

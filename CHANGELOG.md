@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- `unhalted breakeven` and `measure/outcomes.py` — the money argument, with nothing in it that is a
+  forecast. Money is sorted by what each policy can *reach* using Razorpay's own error descriptions;
+  the ceilings on each policy are stated as ceilings; and the intervention's real cost is divided by
+  the money it is placed in front of to give the conversion rate below which it loses money.
+- On a mandate-heavy book of 400 cases that rate is **0.389%** — under half of one customer in 116
+  has to re-authorise before a ₹232 campaign has paid for itself, against ₹59,624 of exposure. The
+  useful property is that the unknown becomes the answer instead of an input.
+- The report names what it will not say. Rupees recovered needs real outcomes at volume; supply a
+  conversion rate and the figure is a multiplication, but the rate is then the merchant's and is
+  labelled as theirs. A published benchmark from another market is refused explicitly: card-updater
+  recovery in the US is a different mechanism from a re-authorisation needing an MPIN.
+
 ### Fixed
 - The baseline is three retry models, not one. Razorpay documents UPI, cards and emandate as
   separate tabs and they do not agree: UPI is T+1/T+2/T+3 then halted, cards are "thrice, once

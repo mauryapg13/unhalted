@@ -122,3 +122,21 @@ def test_verbose_shows_inputs_that_the_default_hides(db, capsys) -> None:
     verbose = run(["--db", path, "case", case_id, "-v"], capsys)
     assert len(verbose) > len(plain)
     assert "error_reason" in verbose
+
+
+def test_breakeven_reads_real_stored_cases(db, capsys) -> None:
+    """C9c. Computed from what is in the store, not from a batch fixture."""
+    path, _ = db
+    out = run(["--db", path, "breakeven"], capsys)
+    assert "MONEY AT RISK" in out
+    assert "BREAKS EVEN AT" in out
+    assert "NOT REPORTED" in out
+
+
+def test_breakeven_says_so_when_there_is_nothing_to_compute(tmp_path, capsys) -> None:
+    from unhalted.store import Store
+
+    path = str(tmp_path / "empty.db")
+    Store(path).close()
+    assert cli.main(["--db", path, "breakeven"]) == 1
+    assert "no diagnosed cases yet" in capsys.readouterr().out

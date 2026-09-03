@@ -5,6 +5,7 @@
     unhalted cases                  what is open, held, closed
     unhalted queue                  what is waiting on a person
     unhalted report                 the batch numbers
+    unhalted breakeven              what the money argument rests on
     unhalted capabilities           what this account can actually do
 
 The audit trail is the only account of what happened that anyone should trust,
@@ -22,6 +23,7 @@ import textwrap
 
 from unhalted import config
 from unhalted.measure.compare import LEGEND, compare, differences
+from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
 from unhalted.store import Store
 
@@ -256,6 +258,31 @@ def show_queue(store: Store) -> int:
     return 0
 
 
+# -- unhalted breakeven -------------------------------------------------------
+
+
+def show_breakeven(store: Store) -> int:
+    """The money argument, computed from whatever cases are actually stored.
+
+    Not a forecast. Every line is arithmetic on a measured intervention cost and
+    a failure class Razorpay documents.
+    """
+    items = []
+    for case in store.all_cases():
+        diagnosis = store.latest_diagnosis(case.id)
+        if diagnosis is None:
+            continue
+        items.append((case.amount_paise, diagnosis.klass))
+
+    if not items:
+        print("no diagnosed cases yet. Run the batch, or drive one through the pipeline.")
+        return 1
+
+    exposure = classify(items)
+    print(render_outcomes(exposure, breakeven(exposure), envelope(exposure)))
+    return 0
+
+
 # -- unhalted report ----------------------------------------------------------
 
 
@@ -328,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     comparison.add_argument("case_id")
 
+    sub.add_parser("breakeven", help="what the money argument rests on")
     sub.add_parser("report", help="the batch measurement")
     sub.add_parser("capabilities", help="what this deployment can do")
 
@@ -340,6 +368,13 @@ def main(argv: list[str] | None = None) -> int:
         store = open_store(args.db)
         try:
             return show_comparison(store, args.case_id)
+        finally:
+            store.close()
+
+    if args.command == "breakeven":
+        store = open_store(args.db)
+        try:
+            return show_breakeven(store)
         finally:
             store.close()
 
