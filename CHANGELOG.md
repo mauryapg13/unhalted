@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
+- `test_a_truncated_response_is_not_retried` passed only where a real API key happened to be on
+  disk. `_call_model` returns before its mocked `httpx.post` is reached when
+  `config.model_api_key()` is empty, which it always is in CI — the test now sets a fake key
+  itself rather than depending on `.env`.
 - The reviewer's decision no longer waits on the model. `show_case` called `brief()` — a live
   request, up to 60 seconds — before the approve/reject/reclassify prompt could even appear, and a
   silent multi-second wait with no indication anything was happening read as a hang rather than a

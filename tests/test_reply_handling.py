@@ -171,11 +171,18 @@ def test_evidence_that_does_not_quote_the_reply_is_dropped() -> None:
     assert not _quotes_the_reply("I will pay you next month", reply)
 
 
-def test_a_truncated_response_is_not_retried() -> None:
-    """Issue #22. At temperature 0 it truncates identically and bills each time."""
+def test_a_truncated_response_is_not_retried(monkeypatch) -> None:
+    """Issue #22. At temperature 0 it truncates identically and bills each time.
+
+    Needs a key configured, or `_call_model` returns before `httpx.post` is ever
+    reached — true here whenever nothing has loaded a real one into the
+    environment, CI included, and the mock below then goes uncalled.
+    """
     import httpx
 
     from unhalted.core import reply as reply_mod
+
+    monkeypatch.setattr(reply_mod.config, "model_api_key", lambda: "test-key")
 
     calls = {"n": 0}
 

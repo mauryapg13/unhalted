@@ -320,3 +320,27 @@ passed without it only because the contended window is short.
 exact failure and sat six lines above the code that committed it. What caught it was somebody
 asking a sceptical question about scale, and the decision to answer with a test rather than an
 argument — which took four minutes and would have taken a production incident otherwise.
+
+---
+
+### A test of a mock passed locally by calling something real
+**Date:** 2026-09-03
+
+**What happened:** CI failed `test_a_truncated_response_is_not_retried` — `assert calls["n"] == 1`
+got `0`. It had passed locally, including in the same run that produced this file's entry above.
+
+**Why:** the test replaces `httpx.post` and expects `_call_model` to reach it. `_call_model`
+returns before that line whenever `config.model_api_key()` is empty: `if not key: return
+ModelCall(None, "no model API key configured", 0)`. Locally `.env` carries a real key, so the guard
+passed and the mock got exercised; CI has no such file, the key is empty, and the mock sat unused
+while the function returned its own "not configured" result — which still happens to satisfy
+`parsed.failed` and the general shape of the assertion, just not the count that was the point of
+the test.
+
+**What changed:** the test now sets `config.model_api_key` to a fake value itself, so what it
+exercises no longer depends on which machine it runs on.
+
+**The lesson:** a test that reaches a real config function instead of a fixture is a test of
+whatever machine happens to run it. It passed here for the same reason a bug can hide behind a
+default that's only ever true in one place — nothing forced the gap into view until a second
+environment actually differed from the first.
