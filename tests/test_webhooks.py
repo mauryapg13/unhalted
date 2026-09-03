@@ -163,6 +163,17 @@ def test_a_redelivered_event_does_not_open_a_second_case(client) -> None:
     assert len(client.store.all_cases()) == 1
 
 
+def test_two_different_payments_open_two_different_cases(client) -> None:
+    """The dedup above must key on the payment, not fire on every second
+    webhook regardless of what it carries. Real traffic is never one payment
+    replayed — it's many, and each of those needs its own case."""
+    first = post(client, load("payment_failed_card"), event_id="evt_x")
+    second = post(client, load("payment_failed_netbanking"), event_id="evt_y")
+
+    assert first.json()["case_id"] != second.json()["case_id"]
+    assert len(client.store.all_cases()) == 2
+
+
 def test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case(client) -> None:
     """Belt and braces: even a fresh event id must not double-count a payment."""
     event = load("payment_failed_netbanking")

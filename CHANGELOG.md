@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- `test_two_different_payments_open_two_different_cases` — the real webhook endpoint, not the
+  demo script, was where the bug below could have mattered. It doesn't: `grep`ing `src/unhalted`
+  for anything resembling the demo's "read a fixed pool of files" pattern turns up nothing, and
+  `/webhooks/razorpay` opens a case from whatever payload Razorpay actually posts, never from a
+  local selection. This locks that in rather than leaving it argued.
+
 ### Fixed
 - `scripts/session.py` no longer replays the same case forever. `real_signal` always read the
   alphabetically first captured fixture, so a database that already held a case for it matched
