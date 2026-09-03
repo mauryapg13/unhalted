@@ -69,6 +69,9 @@ def pick(held: list[Case], choice: str) -> Case | None:
 
 
 def show_case(store: Store, case: Case) -> None:
+    """The raw material. No model call — a reviewer must never wait on the
+    model to be able to act, the same way a debit never waits on it either.
+    """
     print(f"\n{BOLD}{case.id}{RESET}   Rs {case.amount_rupees:.0f}   "
           f"customer {case.customer_ref}   {DIM}state={case.state.value}{RESET}")
 
@@ -96,14 +99,27 @@ def show_case(store: Store, case: Case) -> None:
     pending = store.pending_actions(case_id=case.id)
     print(f"  {DIM}pending automated actions: {len(pending)}{RESET}")
 
+
+def show_briefing(store: Store, case: Case) -> None:
+    """The model's read, fetched only when asked for.
+
+    This is a live call — up to `summarise.TIMEOUT_SECONDS` — and the earlier
+    version made every reviewer wait for it before they could even see the
+    decision prompt. Nineteen silent seconds reads as a hang, not a wait, and a
+    reviewer who did not know to expect it reasonably concluded the program was
+    stuck. The fix is not a faster model; it is never blocking a decision the
+    raw material already supports.
+    """
+    print(f"\n  {DIM}thinking — asking the model for its read on this case "
+          f"(up to {60}s if the endpoint is slow)…{RESET}", flush=True)
     briefing = brief(_record_for_briefing(store, case))
     if briefing:
-        print(f"\n  {BOLD}the agent's read{RESET} {DIM}(advice, not a finding){RESET}")
+        print(f"  {BOLD}the agent's read{RESET} {DIM}(advice, not a finding){RESET}")
         for line in briefing.splitlines():
             if line.strip():
                 print(f"    {line.strip()}")
     else:
-        print(f"\n  {DIM}no briefing — the model was unavailable. The record above is complete.{RESET}")
+        print(f"  {DIM}no briefing — the model was unavailable. The record above is complete.{RESET}")
 
 
 def _record_for_briefing(store: Store, case: Case) -> str:
@@ -215,6 +231,15 @@ def wait_for_input(seconds: float) -> str | None:
     return line.strip() if line else "q"
 
 
+def decision_prompt(*, offer_insight: bool) -> None:
+    print()
+    print(tui.rule("your decision"))
+    insight = f"  {tui.paint('i', tui.BOLD)}nsight (asks the model)   " if offer_insight else ""
+    print(f"  {tui.paint('a', tui.BOLD)}pprove   {tui.paint('r', tui.BOLD)}eject   "
+          f"re{tui.paint('c', tui.BOLD)}lassify   {insight}"
+          f"{tui.paint('b', tui.BOLD)}ack")
+
+
 def handle(store: Store, held: list[Case], choice: str) -> None:
     case = pick(held, choice)
     if case is None:
@@ -223,40 +248,49 @@ def handle(store: Store, held: list[Case], choice: str) -> None:
         return
 
     print(tui.clear(), end="")
-    print(tui.banner(f"REVIEWING {case.id}", "the raw material, then your decision"))
+    print(tui.banner(f"REVIEWING {case.id}", "the raw material — a decision needs none of what follows"))
     show_case(store, case)
-    print()
-    print(tui.rule("your decision"))
-    print(f"  {tui.paint('a', tui.BOLD)}pprove   {tui.paint('r', tui.BOLD)}eject   "
-          f"re{tui.paint('c', tui.BOLD)}lassify   {tui.paint('b', tui.BOLD)}ack")
-    action = (input("  action: ").strip().lower() or "b")
 
-    if action.startswith("a"):
-        note = input("  note: ").strip()
-        record_decision(store, case, "approved", note, new_state=CaseState.OPEN)
-    elif action.startswith("r") and not action.startswith(("rec", "recl")):
-        note = input("  note: ").strip()
-        record_decision(store, case, "rejected", note, new_state=CaseState.UNRECOVERED)
-    elif action.startswith(("c", "rec")):
-        print("  classes: " + ", ".join(c.value for c in DiagnosisClass))
-        raw = input("  reclassify to: ").strip()
-        try:
-            klass = DiagnosisClass(raw)
-        except ValueError:
-            print(tui.paint("  not a class", tui.RED))
-            wait_for_input(1.5)
-            return
-        note = input("  note: ").strip()
-        record_decision(
-            store, case, f"reclassified to {klass.value}", note,
-            new_state=CaseState.OPEN, new_class=klass,
-        )
-        print(tui.paint(
-            "  the override is labelled data: an auditable record of where the "
-            "taxonomy was wrong", tui.DIM,
-        ))
-    else:
-        return
+    # The prompt appears the moment the raw material does. It never waits on
+    # the model, because the material above is already enough to decide from —
+    # the same split the rest of this project makes between the shell and the
+    # core, applied to what a reviewer is kept waiting on.
+    offered_insight = False
+    while True:
+        decision_prompt(offer_insight=not offered_insight)
+        action = (input("  action: ").strip().lower() or "b")
+
+        if action.startswith("i") and not offered_insight:
+            offered_insight = True
+            show_briefing(store, case)
+            continue
+
+        if action.startswith("a"):
+            note = input("  note: ").strip()
+            record_decision(store, case, "approved", note, new_state=CaseState.OPEN)
+        elif action.startswith("r") and not action.startswith(("rec", "recl")):
+            note = input("  note: ").strip()
+            record_decision(store, case, "rejected", note, new_state=CaseState.UNRECOVERED)
+        elif action.startswith(("c", "rec")):
+            print("  classes: " + ", ".join(c.value for c in DiagnosisClass))
+            raw = input("  reclassify to: ").strip()
+            try:
+                klass = DiagnosisClass(raw)
+            except ValueError:
+                print(tui.paint("  not a class", tui.RED))
+                wait_for_input(1.5)
+                return
+            note = input("  note: ").strip()
+            record_decision(
+                store, case, f"reclassified to {klass.value}", note,
+                new_state=CaseState.OPEN, new_class=klass,
+            )
+            print(tui.paint(
+                "  the override is labelled data: an auditable record of where the "
+                "taxonomy was wrong", tui.DIM,
+            ))
+        # anything else, including 'b', leaves the case as it was
+        break
     wait_for_input(2.0)
 
 

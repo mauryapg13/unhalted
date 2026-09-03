@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- The reviewer's decision no longer waits on the model. `show_case` called `brief()` — a live
+  request, up to 60 seconds — before the approve/reject/reclassify prompt could even appear, and a
+  silent multi-second wait with no indication anything was happening read as a hang rather than a
+  wait. Found on a real run: 19 seconds of silence with the terminal apparently stuck. The raw
+  material a reviewer decides from — signals, diagnosis, why it stopped — now prints and prompts
+  immediately, with no model call at all. The model's read is a new `i`nsight option, fetched only
+  if asked for, with a visible "thinking" line before the call so a wait reads as a wait.
+
 ### Added
 - `scripts/schedule.py` — the scheduler's terminal. Every action as it is scheduled, comes due,
   executes, is deferred or is cancelled, as an append-only log rather than a redrawing table:
