@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- A promise realigned to a future day landed at whatever clock time the reply happened to arrive,
+  not at the start of that day. "Tomorrow morning" replied to at 21:24 scheduled the retry for
+  21:24 the next day — 24 hours out regardless of what "morning" meant. `validate_date` correctly
+  reduces a promise to a day with no time of day of its own; realignment now combines it with the
+  start of contact hours (08:00 IST) instead of `now`'s clock reading, matching how the codebase
+  already answers "what time does a day begin" everywhere else. Caught live during a rehearsal.
+
 ### Added
 - `test_two_different_payments_open_two_different_cases` — the real webhook endpoint, not the
   demo script, was where the bug below could have mattered. It doesn't: `grep`ing `src/unhalted`

@@ -344,3 +344,29 @@ exercises no longer depends on which machine it runs on.
 whatever machine happens to run it. It passed here for the same reason a bug can hide behind a
 default that's only ever true in one place — nothing forced the gap into view until a second
 environment actually differed from the first.
+
+---
+
+### A promise for tomorrow morning landed 24 hours later instead
+**Date:** 2026-09-03
+
+**What happened:** replying "kal subah" (tomorrow morning) to a card retry produced a schedule
+labelled 23h 59m out — the customer's next day, but at whatever minute the reply happened to
+arrive, not morning at all. Caught live, on the scheduler terminal, watching a real rehearsal.
+
+**Why:** `validate_date` deliberately reduces a promise to a `date`, not an instant — "the 2nd" has
+no time of day, and asking the model to invent one would be fabricating what the customer said.
+Realignment then combined that bare date with `now.timetz()` — the clock reading at the instant the
+reply was parsed. A promise made at 21:24 landed at 21:24 the next day; a promise made at 09:00
+would have landed at 09:00. The day was right and always incidental; the time was never anything
+the customer stated, only ever whatever the shell's own clock said back to itself.
+
+**What changed:** the promised day now combines with `windows.CONTACT_OPEN` (08:00 IST) — the start
+of contact hours, already the codebase's own answer to "what time does a day begin" via
+`next_allowed_contact`. A promise for "the 2nd" now lands at the start of the 2nd, every time,
+regardless of when in the conversation it was made.
+
+**The lesson:** a value that is only *usually* stable — here, the clock reading at parse time —
+reads as a constant until the one day it visibly isn't. Nothing about the realignment tests caught
+this because none of them varied `now`'s time of day; they only varied the promised date, so the
+line reusing the wrong half of `now` never had a reason to disagree with itself.

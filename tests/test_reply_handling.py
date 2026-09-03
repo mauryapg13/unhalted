@@ -112,6 +112,26 @@ def test_a_promise_replaces_the_pending_retry_rather_than_adding_one(
     assert pending[0]["scheduled_for"].startswith("2026-09-25")
 
 
+def test_a_realigned_retry_lands_at_the_start_of_contact_hours_not_the_reply_time(
+    store, case, monkeypatch
+) -> None:
+    """A promise carries a day, never a time — "the 2nd" has none, and asking
+    the model to invent one would fabricate what the customer actually said.
+    Combining that day with `now`'s clock time instead read a promise made at
+    14:00 as "this time, tomorrow" rather than "tomorrow morning": a reply
+    naming *any* future day landed 24-ish hours out no matter what the day
+    actually was. It must land at the start of contact hours on the promised
+    day instead."""
+    monkeypatch.setattr(
+        agent, "parse_reply",
+        fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw="2026-09-25"),
+    )
+    agent.handle_reply(store, case, "kal subah kar dunga", now=NOW)  # NOW is 14:00
+
+    pending = store.pending_actions(case_id=case.id)
+    assert pending[0]["scheduled_for"] == "2026-09-25T08:00:00+05:30"
+
+
 def test_a_promise_with_no_usable_date_changes_no_timing(store, case, monkeypatch) -> None:
     """The specification: record the promise, ask them to confirm a date."""
     monkeypatch.setattr(

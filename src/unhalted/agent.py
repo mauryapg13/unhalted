@@ -372,7 +372,15 @@ def handle_reply(
 
     if outcome.realign_to:
         store.cancel_pending("REALIGNED", case_id=case.id)
-        target = datetime.combine(outcome.realign_to, now.timetz())
+        # The promise is a day, not an instant — `validate_date` deliberately
+        # strips time of day, because "the 2nd" doesn't carry one and a model
+        # asked to invent one would be fabricating what the customer said.
+        # Combining with `now`'s clock time instead of a stated default meant
+        # a promise made at 21:24 landed at 21:24 the next day — "24 hours
+        # from now", not "tomorrow morning" as replied. Contact hours already
+        # define the day's start for exactly this reason; reuse it rather
+        # than the instant the reply happened to arrive.
+        target = datetime.combine(outcome.realign_to, windows.CONTACT_OPEN, tzinfo=windows.IST)
         # The method comes from the case's own signal, exactly as it does on the
         # first schedule. Omitting it here treated a realigned card retry as
         # governed by NPCI's UPI bands while the original was not — the same
