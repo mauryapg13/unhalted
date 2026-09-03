@@ -55,6 +55,7 @@ STYLE = {
     "NO ADAPTER": tui.RED,
     "FAILED": tui.RED,
     "RECLAIMED": tui.AMBER,
+    "REVIEWED": tui.VIOLET,
 }
 
 
@@ -77,6 +78,41 @@ def describe(action: dict[str, Any], now: datetime) -> str:
         f"{tui.pad(kind, 10)} {tui.clock(at)}  "
         f"{tui.paint(tui.relative(at, now), tui.DIM)}"
     )
+
+
+def audit_lines(
+    store: Store, seen: set[tuple[str, str, str]], *, now: datetime,
+) -> list[str]:
+    """Executions and human decisions, both read from the audit trail rather
+    than from the runner's own report — so a pass run by another worker, the
+    HTTP endpoint, or a reviewer in a different terminal all show up here too.
+
+    Without the human-review half of this, approving, rejecting or
+    reclassifying a held case was invisible from here: the log stopped at the
+    cancellation that sent a case to a person and never said what the person
+    then did about it.
+    """
+    lines: list[str] = []
+    for case in store.all_cases():
+        for record in store.timeline(case.id):
+            if record.decision_type not in ("execution", "human-review"):
+                continue
+            marker = (record.case_id, record.at.isoformat(), record.action)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if record.decision_type == "human-review":
+                who = record.human_actor or "a reviewer"
+                lines.append(event("REVIEWED", case.id, f"{record.action}, by {who}", now=now))
+                continue
+            state = record.action.split(":")[-1].strip().upper()
+            kind = {
+                "DONE": "EXECUTED",
+                "NO-ADAPTER": "NO ADAPTER",
+                "PENDING": "DEFERRED",
+            }.get(state, state)
+            lines.append(event(kind, case.id, record.outcome or record.action, now=now))
+    return lines
 
 
 def header(db: pathlib.Path, running: bool, note: str | None) -> None:
@@ -125,7 +161,7 @@ def main() -> int:
     reported: set[tuple[int, str]] = set()
     # An audit record carries no id, so it is identified by what makes it
     # unique in practice: the case, the instant, and the action.
-    seen_executions: set[tuple[str, str, str]] = set()
+    seen_audit: set[tuple[str, str, str]] = set()
     idle_ticks = 0
 
     try:
@@ -175,25 +211,7 @@ def main() -> int:
                                        f"{report.reclaimed} action(s) from a worker that "
                                        f"did not finish", now=now))
 
-            # Executions come from the audit trail rather than from the runner's
-            # own report, so a pass run by another worker or the HTTP endpoint
-            # shows up here too.
-            for case in store.all_cases():
-                for record in store.timeline(case.id):
-                    if record.decision_type != "execution":
-                        continue
-                    marker = (record.case_id, record.at.isoformat(), record.action)
-                    if marker in seen_executions:
-                        continue
-                    seen_executions.add(marker)
-                    state = record.action.split(":")[-1].strip().upper()
-                    kind = {
-                        "DONE": "EXECUTED",
-                        "NO-ADAPTER": "NO ADAPTER",
-                        "PENDING": "DEFERRED",
-                    }.get(state, state)
-                    lines.append(event(kind, case.id, record.outcome or record.action,
-                                       now=now))
+            lines.extend(audit_lines(store, seen_audit, now=now))
 
             if lines:
                 idle_ticks = 0

@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- The scheduler terminal never showed what a reviewer decided. It filtered the audit trail down to
+  `decision_type == "execution"` only, so `record_decision`'s "human-review" records — approved,
+  rejected, reclassified, and by whom — were silently dropped; the log stopped at the cancellation
+  that sent a case to a person and never said what the person then did about it. Found by watching
+  it live: a case moved to review, a decision was made, and nothing in the scheduler's own terminal
+  changed. The scanning logic is now `audit_lines`, its own function, tested directly rather than
+  only through the poll loop it used to live inside.
 - A promise realigned to a future day landed at whatever clock time the reply happened to arrive,
   not at the start of that day. "Tomorrow morning" replied to at 21:24 scheduled the retry for
   21:24 the next day — 24 hours out regardless of what "morning" meant. `validate_date` correctly
