@@ -308,6 +308,31 @@ would be the same invention with a footnote attached.
 
 ---
 
+### C9d — A scheduled action actually happens
+The seam between deciding to recover money and recovering it.
+
+**Done when:** `unhalted run-due` and `POST /internal/run-due` execute the actions whose time has
+come, claiming them under a lease so two workers cannot take the same one, reclaiming a lease whose
+worker died, refusing an action a stop rule cancelled while it was held, and recording every
+execution in the audit trail beside the decision that caused it.
+
+**Why it exists.** `pending_actions` had three writers and no runner. A retry scheduled for 13:00
+was a row describing an intention, and 13:00 arrived and nothing happened. Every part was correct
+and the seam between them did not exist — the same shape as the three bugs in `BREAKAGE.md`, and
+the most consequential instance of it.
+
+**The queue is the table.** No broker. A row with a due time and a state is durable already, and it
+shares a transaction boundary with the audit trail and the stop rules, so a revocation and the
+retry it cancels cannot interleave wrongly. Delivery is at-least-once, because a lease that expires
+returns its work; the execution side must stay idempotent for that to be safe.
+
+**Not included:** a debit adapter. Initiating a charge needs a live mandate token and this account
+cannot register one for UPI at all, so `retry` refuses, records why, and routes to a person.
+Absent and saying so, not stubbed and lying. Also absent: authentication on the endpoint, and any
+claim that this system has recovered money in production.
+
+---
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 

@@ -227,3 +227,19 @@ def test_a_payment_in_another_currency_is_refused_at_ingest() -> None:
 
     with pytest.raises(UnsupportedEvent, match="USD"):
         from_payment_failed(event("USD"))
+
+
+def test_the_run_due_endpoint_is_the_same_pass_over_http() -> None:
+    """#31. A deployment without a long-running process still needs a clock;
+    an external scheduler posting here is that clock."""
+    from fastapi.testclient import TestClient
+
+    from unhalted.ingest.webhooks import app
+
+    with TestClient(app) as client:
+        body = client.post("/internal/run-due").json()
+
+    assert body["claimed"] >= 0
+    assert "worker" in body
+    for key in ("done", "held", "cancelled", "no_adapter", "failed", "reclaimed"):
+        assert key in body, f"{key} missing from the run-due report"

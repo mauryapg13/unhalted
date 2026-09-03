@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+- A runner. `pending_actions` had three writers and nothing that executed one, so a retry scheduled
+  for 13:00 was a row recording an intention and 13:00 arrived and nothing happened. `unhalted
+  run-due` and `POST /internal/run-due` now execute what has come due — the same function behind a
+  command, an HTTP request an external scheduler can post to, or a person typing it, so the
+  deployment shape stays an open question.
+- Actions are claimed under a **lease**, not a lock. Claim and read are one transaction, because
+  selecting first and updating after is how the same retry reaches two workers. A lease expires, so
+  a worker that dies mid-action does not strand its rows — they return to `pending` and are tried
+  again. Delivery is at-least-once and the executors have to be safe under repetition, which is the
+  discipline the ingest side already applies to Razorpay's redelivery.
+- Cancellation reaches leased rows and the runner re-reads state immediately before it acts, so a
+  customer revoking while a worker holds the lease still stops the charge.
+- Every execution is written to the audit trail beside the decision that caused it, carrying the
+  worker's name — a decision recorded without its execution is half an account.
+- **The debit adapter is absent, and says so.** Initiating a charge needs a live mandate token and
+  this account cannot register one for UPI. `retry` refuses, records why, and routes the case to a
+  person rather than reporting a success nobody performed. See #31.
+
+### Fixed
+- `run_due` treated an empty executor mapping as a request for the defaults, because `executors or
+  EXECUTORS` cannot tell "none registered" from "none supplied". Found by the test for it.
+
 ### Fixed
 - NPCI's execution bands are applied only to the rail they govern. `windows.py` opened by saying the
   restriction is on **UPI Autopay** while the code applied it to every method, so card retries were

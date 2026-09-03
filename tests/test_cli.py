@@ -140,3 +140,11 @@ def test_breakeven_says_so_when_there_is_nothing_to_compute(tmp_path, capsys) ->
     Store(path).close()
     assert cli.main(["--db", path, "breakeven"]) == 1
     assert "no diagnosed cases yet" in capsys.readouterr().out
+
+
+def test_run_due_executes_from_the_command_line(db, capsys) -> None:
+    """#31. The same function a scheduler would call over HTTP."""
+    path, _ = db
+    out = run(["--db", path, "run-due"], capsys)
+    assert "claimed=" in out
+    assert "worker=" in out

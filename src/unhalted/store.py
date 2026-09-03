@@ -22,7 +22,7 @@ import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -74,11 +74,23 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     scheduled_for TEXT,
     state         TEXT NOT NULL DEFAULT 'pending',
     cancel_reason TEXT,
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    -- A lease, not a lock. A worker that dies mid-action does not strand the
+    -- row: the lease expires and the action returns to 'pending'. That makes
+    -- delivery at-least-once, which is only safe because the execution side is
+    -- idempotent — see runner.py.
+    leased_until  TEXT,
+    worker        TEXT,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_error    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_customer
     ON pending_actions(customer_ref, state);
+
+-- The index the runner actually queries on: what is pending and due.
+CREATE INDEX IF NOT EXISTS idx_pending_due
+    ON pending_actions(state, scheduled_for);
 
 CREATE TABLE IF NOT EXISTS processed_events (
     event_id      TEXT PRIMARY KEY,
@@ -116,7 +128,33 @@ class Store:
         # forever and a lost case is money nobody chases.
         self._conn.execute("PRAGMA synchronous = FULL")
         self._conn.executescript(SCHEMA)
+        self._add_missing_columns()
         self._conn.commit()
+
+    #: Columns added after the first databases were written. `CREATE TABLE IF
+    #: NOT EXISTS` will not add a column to a table that already exists, so an
+    #: older file opens without them and every query against them fails.
+    _LATE_COLUMNS = (
+        ("pending_actions", "leased_until", "TEXT"),
+        ("pending_actions", "worker", "TEXT"),
+        ("pending_actions", "attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("pending_actions", "last_error", "TEXT"),
+    )
+
+    def _add_missing_columns(self) -> None:
+        """Bring an existing database up to the current schema.
+
+        Deliberately not a migration framework. Four additive columns do not
+        justify one, and an ALTER that has already been applied is detected
+        rather than tracked, so this is safe to run on every open.
+        """
+        for table, column, decl in self._LATE_COLUMNS:
+            existing = {
+                r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")
+            }
+            if column not in existing:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
 
     def close(self) -> None:
         with self._lock:
@@ -361,6 +399,104 @@ class Store:
         with self._read() as conn:
             return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
 
+    def release_expired_leases(self, now: datetime) -> int:
+        """Return actions whose worker died to the pending pool.
+
+        This is what makes a crash survivable without anyone intervening. A
+        worker holding a lease that has passed its expiry is assumed gone, and
+        its work becomes available again.
+        """
+        with self._tx() as conn:
+            return int(
+                conn.execute(
+                    "UPDATE pending_actions"
+                    " SET state = 'pending', leased_until = NULL, worker = NULL"
+                    " WHERE state = 'leased' AND leased_until <= ?",
+                    (now.isoformat(),),
+                ).rowcount
+            )
+
+    def lease_due_actions(
+        self,
+        now: datetime,
+        *,
+        worker: str,
+        lease_for: timedelta,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Claim the actions that are due, so no other worker takes them.
+
+        Claim and read are one transaction. Selecting first and updating after
+        is the classic way to hand the same retry to two workers, and this
+        project has already shipped one check-then-act race — see the
+        concurrency note in `_open_case_locked`.
+
+        Returns the rows as claimed. An empty list means nothing is due, which
+        is the normal case and not a condition worth logging.
+        """
+        until = (now + lease_for).isoformat()
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE pending_actions"
+                " SET state = 'leased', leased_until = ?, worker = ?,"
+                "     attempts = attempts + 1"
+                " WHERE id IN ("
+                "   SELECT id FROM pending_actions"
+                "    WHERE state = 'pending'"
+                "      AND scheduled_for IS NOT NULL"
+                "      AND scheduled_for <= ?"
+                "    ORDER BY scheduled_for"
+                "    LIMIT ?"
+                " )",
+                (until, worker, now.isoformat(), limit),
+            )
+            rows = conn.execute(
+                "SELECT * FROM pending_actions"
+                " WHERE state = 'leased' AND worker = ? AND leased_until = ?"
+                " ORDER BY scheduled_for",
+                (worker, until),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def action(self, action_id: int) -> dict[str, Any] | None:
+        """One action as it stands right now.
+
+        The runner re-reads through this immediately before executing, so a
+        cancellation that landed after the lease was taken still wins.
+        """
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT * FROM pending_actions WHERE id = ?", (action_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def finish_action(
+        self,
+        action_id: int,
+        *,
+        state: str,
+        error: str | None = None,
+    ) -> None:
+        """Mark a leased action done, failed, or handed to a person."""
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE pending_actions"
+                " SET state = ?, last_error = ?, leased_until = NULL"
+                " WHERE id = ?",
+                (state, error, action_id),
+            )
+
+    def return_action(self, action_id: int, *, scheduled_for: datetime) -> None:
+        """Put a leased action back, to be tried again later."""
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE pending_actions"
+                " SET state = 'pending', leased_until = NULL, worker = NULL,"
+                "     scheduled_for = ?"
+                " WHERE id = ?",
+                (scheduled_for.isoformat(), action_id),
+            )
+
     def cancel_pending(
         self,
         reason: str,
@@ -379,7 +515,13 @@ class Store:
         if not customer_ref and not case_id:
             raise ValueError("cancel_pending needs a customer_ref or a case_id")
 
-        sql = "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ? WHERE state = 'pending'"
+        # 'leased' is included deliberately. A customer revoking while a worker
+        # holds the lease must still stop the charge; the runner re-reads state
+        # before it acts, so a cancellation lands even mid-flight.
+        sql = (
+            "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ?"
+            " WHERE state IN ('pending', 'leased')"
+        )
         params: list[Any] = [reason]
         if customer_ref:
             sql += " AND customer_ref = ?"

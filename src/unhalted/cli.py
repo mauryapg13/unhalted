@@ -6,6 +6,7 @@
     unhalted queue                  what is waiting on a person
     unhalted report                 the batch numbers
     unhalted breakeven              what the money argument rests on
+    unhalted run-due                execute the actions that have come due
     unhalted capabilities           what this account can actually do
 
 The audit trail is the only account of what happened that anyone should trust,
@@ -25,6 +26,7 @@ from unhalted import config
 from unhalted.measure.compare import LEGEND, compare, differences
 from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
+from unhalted.runner import run_due
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -258,6 +260,20 @@ def show_queue(store: Store) -> int:
     return 0
 
 
+# -- unhalted run-due ---------------------------------------------------------
+
+
+def run_due_actions(store: Store) -> int:
+    """Execute whatever has come due, once.
+
+    Safe to run at any moment, including twice in the same second: a pass that
+    finds nothing due does nothing. That is what lets the same function sit
+    behind a cron entry, an HTTP request, or a person typing this.
+    """
+    print(run_due(store).render())
+    return 0
+
+
 # -- unhalted breakeven -------------------------------------------------------
 
 
@@ -355,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     comparison.add_argument("case_id")
 
+    sub.add_parser("run-due", help="execute the actions that have come due")
     sub.add_parser("breakeven", help="what the money argument rests on")
     sub.add_parser("report", help="the batch measurement")
     sub.add_parser("capabilities", help="what this deployment can do")
@@ -368,6 +385,13 @@ def main(argv: list[str] | None = None) -> int:
         store = open_store(args.db)
         try:
             return show_comparison(store, args.case_id)
+        finally:
+            store.close()
+
+    if args.command == "run-due":
+        store = open_store(args.db)
+        try:
+            return run_due_actions(store)
         finally:
             store.close()
 
