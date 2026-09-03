@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- `scripts/classify.py` — what the taxonomy says for five of Razorpay's own documented card
+  error scenarios (`docs/capturing-fixtures.md`'s test-card table), called directly against
+  `diagnose()`. Not a payment and not a case: the three fixtures actually captured on this account
+  all carry the same reason, which is why every rehearsal has landed on the same class so far. Two
+  of the five reach full confidence and auto-execute; the captured ones sit at 0.80.
 - A nudge now carries a real, payable Razorpay Payment Link instead of asking the customer to
   reply. The escalation ladder already priced this — rung 2 is "message with a pay link", rung 3 is
   "re-authorisation link" — but no code generated one; a customer whose card had expired had nothing
