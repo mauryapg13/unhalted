@@ -186,7 +186,10 @@ def test_a_debit_above_the_card_ceiling_is_never_scheduled(store: Store) -> None
     schedule = [r for r in store.timeline(case.id) if r.decision_type == "schedule"]
 
     assert kinds == ["ingest", "diagnosis", "escalation", "schedule"]
-    assert schedule[0].action == "retry refused on amount"
+    # A balance failure asks the customer for a date and arms a fallback
+    # retry behind it; the ceiling refuses that fallback for the same reason
+    # it refuses any other retry, and says so in the same terms.
+    assert schedule[0].action == "fallback retry refused on amount"
     assert schedule[0].rules_fired == ["LIMIT:WOULD_FAIL"]
     assert "fails automatically" in schedule[0].outcome
 
@@ -223,7 +226,9 @@ def test_a_permissible_amount_still_schedules_a_retry(store: Store) -> None:
 
     case = handle_failure(store, big_signal(499 * 100), now=datetime(2026, 9, 1, 14, 0, tzinfo=IST))
     schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
-    assert schedule.action.startswith("retry at")
+    # "fallback" because a balance failure asks the customer for a date first
+    # — the retry behind that question is still a real, scheduled retry.
+    assert schedule.action.startswith("fallback retry at")
 
 
 # -- which stops leave a case needing a person --------------------------------
@@ -274,10 +279,16 @@ def test_a_revocation_cancels_the_retry_the_agent_scheduled_itself(store: Store)
     case = handle_failure(store, signal("pay_REVOKE", "cust_revoke"), now=now)
 
     pending = store.pending_actions(case_id=case.id)
-    assert [a["kind"] for a in pending] == ["retry"], "the scheduled retry must be trackable"
+    # A balance failure schedules both halves at once: the question asking
+    # when to try, and the fallback retry that runs only if nobody answers.
+    # A revocation has to reach both — leaving either armed would contact or
+    # charge somebody who has withdrawn permission.
+    assert [a["kind"] for a in pending] == ["nudge", "retry"], (
+        "both scheduled actions must be trackable"
+    )
 
     cancelled = apply_stop(
         store, "REVOKED", case_id=case.id, customer_ref="cust_revoke", now=now
     )
-    assert cancelled == 1
+    assert cancelled == 2
     assert store.pending_actions(case_id=case.id) == []

@@ -47,6 +47,14 @@ retries:
     recoverable-balance: ["1d", "1d", "2d"]
     notification-gap: ["25h", "25h", "25h"]
   default_backoff: "6h"
+  # How long a balance case waits for the customer to name a date before
+  # falling back to the blind backoff above. An empty account is the one
+  # failure whose fix depends on a fact only the customer has — when money
+  # arrives — so this asks first and guesses second. 25 hours matches the
+  # window Razorpay already requires between a pre-debit notification and
+  # the charge it precedes, rather than inventing a second number for the
+  # same idea: how long to leave a customer to answer.
+  reply_grace: "25h"
 
 confidence:
   # Policy, not measurement — see Diagnosis.authority's own docstring.

@@ -90,7 +90,9 @@ def test_injecting_one_produces_a_real_diagnosed_case(inject, store) -> None:
     diagnosis = store.latest_diagnosis(case.id)
     assert diagnosis is not None
     assert diagnosis.klass.value == "recoverable-balance"
-    assert len(store.pending_actions(case_id=case.id)) == 1
+    # An empty account asks the customer when to try rather than guessing:
+    # the question now, and a fallback retry behind it for a silent customer.
+    assert [a["kind"] for a in store.pending_actions(case_id=case.id)] == ["nudge", "retry"]
 
 
 def test_the_same_reason_run_twice_matches_back_rather_than_duplicating(inject, store) -> None:

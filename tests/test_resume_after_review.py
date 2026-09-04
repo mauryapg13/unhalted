@@ -88,4 +88,32 @@ def test_a_case_that_already_exhausted_its_cycle_is_not_re_armed(held_case) -> N
     decision = resume_after_review(store, exhausted, now=NOW)
 
     assert not decision.accepted
-    assert store.pending_actions(case_id=case.id) == []
+    assert not any(a["kind"] == "retry" for a in store.pending_actions(case_id=case.id)), (
+        "the cap is NPCI's, and a reviewer approving does not raise it"
+    )
+
+
+def test_an_exhausted_cycle_escalates_rather_than_going_quiet(held_case) -> None:
+    """Refused is not the same as abandoned.
+
+    A reviewer clearing a held case whose retries are spent used to get one
+    audit line saying "refused" and a case with nothing pending and nobody
+    told — the omission this ladder exists to prevent. The rungs above are
+    absent on this deployment, so the fallback is the one thing that can
+    still recover the money without a debit adapter: a payable link, with
+    the reason it is arriving.
+    """
+    store, case = held_case("card")
+    exhausted = case.model_copy(update={"retry_count": RETRY_CAP})
+
+    resume_after_review(store, exhausted, now=NOW)
+
+    pending = store.pending_actions(case_id=case.id)
+    assert [a["kind"] for a in pending] == ["nudge"]
+    assert pending[0]["variant"] == "exhausted"
+
+    escalation = next(
+        r for r in store.timeline(case.id)
+        if "ESCALATED_AFTER_CAP" in r.rules_fired
+    )
+    assert "retries spent" in escalation.action

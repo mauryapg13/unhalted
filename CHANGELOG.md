@@ -2,7 +2,52 @@
 
 ## [Unreleased]
 
+### Changed
+- **An empty account is asked, not guessed at.** `RECOVERABLE_BALANCE` entered the ladder at
+  `SILENT_RETRY` and spent NPCI's whole allowance on three blind attempts at a date nobody asked
+  about — while `core/reply.py`'s own docstring argued the opposite: whether a retry works depends
+  on when the customer will have money, and no API reports that. It now enters at `NUDGE` with a
+  message that actually asks, arms a fallback retry behind it (`retries.reply_grace`, 25h, plus the
+  usual backoff) for a customer who never answers, and a reply naming a date cancels that fallback
+  and reschedules to the day they gave. Scoped to balance failures only: nobody can tell you when a
+  gateway will recover, so `RECOVERABLE_TECHNICAL` still retries blind, correctly.
+
+### Added
+- `Store.increment_retry_count`, called once per executed retry — see Fixed below for why nothing
+  counted attempts before.
+- `agent.escalate_after_cap`, shared by every path that can be refused by the retry cap.
+- Three nudge messages instead of one (`NudgeVariant`): the first-touch text, the balance question,
+  and an "we tried, here's a link" message for a case whose retries are spent. Reusing the
+  first-touch wording on somebody who just asked for a specific retry date reads as never having
+  listened; the variant is recorded on the action, so the wording is the decision's to make rather
+  than something the executor invents at send time. Asking for a date no longer generates a payment
+  link at all, which also stops it spending Razorpay's test-mode link quota on a message that never
+  carried one.
+- `cases.nudges_suspended_until`, so a promise-to-pay actually suppresses the next nudge.
+
 ### Fixed
+- **The retry counter had two readers and no writer.** `case.retry_count` was set to 0 on insert and
+  incremented nowhere, so `backoff_for` always returned tier one — the `2h`/`6h` and `1d`/`2d` tiers
+  were real, tested and unreachable — and `retry_count >= RETRY_CAP` could never be true, leaving
+  NPCI's three-attempt cap enforced only in unit tests that set the count by hand. Found by asking
+  what the number would be after three attempts. Recorded in `BREAKAGE.md`.
+- **A refused retry left the case with nothing pending and nobody told.** All three paths that ask
+  for one — the first schedule, a promise-to-pay realignment, a reviewer clearing a held case — wrote
+  "refused" to the audit trail and stopped. They now fall through to `escalate_after_cap`, which
+  walks `ladder.next_rung` to the next rung this deployment can actually execute (re-authorisation,
+  voice and human callback have no executor, and it says so in the record rather than scheduling a
+  dead action) and sends a payable link with the reason it is arriving. A customer who names a date
+  the cap can no longer honour gets that link rather than silence.
+- **`ReplyOutcome.suspend_nudges_until` was computed and read by nothing.** A customer who said "the
+  8th" could still be nudged on the 7th. It is now persisted on the case and enforced in
+  `execute_nudge`, which defers to the named date the same way it defers outside contact hours.
+- **The amount ceiling ran on one retry path out of four.** A debit above the ₹15,000 card ceiling or
+  the mandate's own `max_amount` was refused when first scheduled, and then permitted if a reviewer
+  re-armed it or a promise-to-pay realigned it — the amount did not change because somebody asked
+  again. One `_amount_permitted` check now runs on all four.
+- `measure/compare.py` did not count a balance case's fallback retry as a scheduled attempt, which
+  would have undercounted this system's own debit attempts against the baseline's — the direction of
+  error this project can least afford, given that comparison is its headline number.
 - `core/scenarios.py` supplied `error_source = "gateway"` for all five of its injectable scenarios
   alike — a placeholder that matched the three real captured fixtures (issue #8) but was never
   grounded in what each of these five specific reasons actually is. `core/taxonomy.py`'s own rule

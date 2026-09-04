@@ -740,3 +740,65 @@ the one case where it silently does matter is exactly the one nobody was looking
 shape as the `payment_timed_out`/`payment_risk_check_failed` split this project's own taxonomy
 comments already warn about for diagnosis in general, just found here in the fixture data feeding
 it rather than in the taxonomy itself.
+
+---
+
+### The retry counter was written once, at zero, and never touched again
+**Date:** 2026-09-05
+
+**What happened:** asked a plain question — does `insufficient_fund` really retry three times with
+increasing backoff? — and tracing it found `case.retry_count` is incremented nowhere in the
+codebase. It is set to 0 when the case row is inserted and read in three places, and no line
+anywhere ever raises it. Every `unhalted case` output in this whole session says `retries 0`, and
+that was not a coincidence.
+
+**Why:** the counter has two readers and no writer. `backoff_for(klass, case.retry_count)` picks
+which tier of the backoff schedule applies, and `schedule_retry` refuses once `retry_count >=
+RETRY_CAP`. With the value frozen at zero, tier one was the only tier a case could ever get — the
+`2h`/`6h` and `1d`/`2d` tiers in `config/policy.yaml` were real, tested, and unreachable — and the
+cap could never be hit, so NPCI's three-attempt allowance was enforced only in the unit tests that
+constructed a non-zero count by hand. The gap survived because both readers behave *plausibly* at
+zero: a retry gets scheduled, at a sensible-looking time, every time.
+
+**What changed:** `Store.increment_retry_count` exists and `runner.run_due` calls it once per
+executed retry, whatever the outcome — a deferral is not an attempt, an execution is, including one
+that came back `no-adapter`, because the decision to attempt was still spent. That made the cap
+reachable, which immediately exposed the next thing: every path that asks for a retry could be
+refused by it, and all three — the first schedule, a promise-to-pay realignment, a reviewer
+clearing a held case — wrote "refused" to the audit trail and stopped there, leaving a case with
+nothing pending and nobody told. `escalate_after_cap` now takes it from there for all three.
+
+**The lesson:** a counter with no writer reads exactly like a counter that is working, because
+every value it produces is a value it could legitimately have. Nothing failed, no test went red,
+and the only way to find it was to ask what the number would be after three attempts and then go
+looking for the line that would have made it so.
+
+---
+
+### Considered and not built: changing the mandate's own debit date
+**Date:** 2026-09-05
+
+**The idea, and it is a good one:** a customer whose balance is empty on the 1st every month and
+funded on the 5th does not have a recovery problem, they have a scheduling problem. Log the
+repeated `insufficient_fund` failures per customer, and after two or three cycles of the same
+pattern, offer to move their autopay date — with their approval, the same shape as the taxonomy
+clustering this project already does for held cases.
+
+**Why it is not built:** Razorpay's API does not expose it for the case this project is about.
+Verified against their own documentation rather than assumed:
+
+- *"You cannot update a Subscription authorised via UPI mode or Emandate."* This system exists for
+  UPI Autopay; the README opens with it. For the mandate type that matters most here, there is no
+  update call at all.
+- *"Subscriptions in the `created`, `pending` or `halted` state cannot be updated."* `halted` is the
+  state this project exists to recover from.
+- There is no request parameter that reschedules the next charge in any case: `start_at` moves the
+  subscription's own start date, and `charge_at` is a read-only response field.
+
+The honest equivalent would be cancelling the existing mandate and having the customer authorise a
+new one on a better date — a full re-registration flow with its own consent design, not a
+date-change call. That is a different feature, and calling it a small one would be wrong.
+
+**The lesson worth keeping:** the idea was right and the platform said no, which is a different
+answer from "we ran out of time" and is worth recording as such. A reader who has the same idea
+next month should find the three quotes above rather than rediscovering them.

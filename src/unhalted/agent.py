@@ -10,17 +10,20 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from unhalted import runner
 from unhalted.core.diagnose import diagnose, needs_verification
 from unhalted.core.reply import parse as parse_reply
 from unhalted.models import (
     AuditRecord,
     Case,
     CaseState,
+    Diagnosis,
     DiagnosisClass,
     FailureSignal,
     ParsedReply,
 )
-from unhalted.shell import ladder, limits, replies, stops, verify, windows
+from unhalted.policy import POLICY
+from unhalted.shell import ladder, limits, notify, replies, stops, verify, windows
 from unhalted.shell.notify import ConsoleNotifier, Message, deliver
 from unhalted.shell.scheduler import ScheduleDecision, backoff_for, schedule_retry
 from unhalted.store import Store
@@ -196,36 +199,20 @@ def handle_failure(
         # contact hours itself and defers to the next allowed one if needed,
         # the same as a retry does; a nudge with no due time at all could
         # never become due for `run_due` to find in the first place.
-        store.schedule_action(case.id, case.customer_ref, ladder.SLUG[rung], now, now)
+        balance = diagnosis.klass is DiagnosisClass.RECOVERABLE_BALANCE
+        store.schedule_action(
+            case.id, case.customer_ref, ladder.SLUG[rung], now, now,
+            variant=notify.NudgeVariant.ASK_DATE.value if balance else None,
+        )
+        if balance:
+            _schedule_balance_fallback(store, case, diagnosis, signal, now=now)
         return store.get_case(case.id) or case
 
     # Before any retry is scheduled, the money has to be permissible. This is
     # not the same question as whether the retry is well-timed, and it is asked
     # first: a debit above the mandate's ceiling should never be scheduled at
     # all, however good the window is.
-    limit = limits.check(
-        signal.amount_paise,
-        signal.method,
-        mandate_max_paise=signal.mandate_max_paise,
-    )
-    if not limit.may_attempt:
-        store.record(
-            AuditRecord(
-                case_id=case.id,
-                at=now,
-                decision_type="schedule",
-                action="retry refused on amount",
-                inputs={
-                    "amount_paise": signal.amount_paise,
-                    "method": signal.method,
-                    "mandate_max_paise": signal.mandate_max_paise,
-                    "outcome": limit.outcome.value,
-                },
-                rules_fired=[limit.code] if limit.code else [],
-                rule_version=limit.rule_version,
-                outcome=limit.reason,
-            )
-        )
+    if not _amount_permitted(store, case, signal, now=now, action="retry refused on amount"):
         return store.get_case(case.id) or case
 
     # Backoff is the scheduler's business, not the loop's — it is a timing
@@ -264,7 +251,227 @@ def handle_failure(
             outcome=decision.reason,
         )
     )
+    if not decision.accepted:
+        escalate_after_cap(
+            store, case, klass=diagnosis.klass, now=now, refusal=decision.reason
+        )
     return store.get_case(case.id) or case
+
+
+def _amount_permitted(
+    store: Store,
+    case: Case,
+    signal: FailureSignal | None,
+    *,
+    now: datetime,
+    action: str,
+) -> bool:
+    """Whether this amount may be debited at all, recording a refusal if not.
+
+    Asked before *every* retry this system schedules, not only the first.
+    A ceiling that blocked the original attempt has to block the one a
+    reviewer re-arms and the one a promise-to-pay realigns too — the amount
+    did not change because somebody asked again, and a check that runs on
+    one path out of four is a check a case can walk around.
+
+    A case with no signal on file cannot be checked; it is refused rather
+    than waved through, because the alternative is scheduling a debit
+    against an amount nothing verified.
+    """
+    if signal is None:
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="schedule",
+                action=action,
+                inputs={"amount_paise": case.amount_paise},
+                rules_fired=["NO_SIGNAL_ON_FILE"],
+                outcome="no signal on file to check the amount against",
+            )
+        )
+        return False
+
+    limit = limits.check(
+        signal.amount_paise,
+        signal.method,
+        mandate_max_paise=signal.mandate_max_paise,
+    )
+    if limit.may_attempt:
+        return True
+
+    store.record(
+        AuditRecord(
+            case_id=case.id,
+            at=now,
+            decision_type="schedule",
+            action=action,
+            inputs={
+                "amount_paise": signal.amount_paise,
+                "method": signal.method,
+                "mandate_max_paise": signal.mandate_max_paise,
+                "outcome": limit.outcome.value,
+            },
+            rules_fired=[limit.code] if limit.code else [],
+            rule_version=limit.rule_version,
+            outcome=limit.reason,
+        )
+    )
+    return False
+
+
+def _schedule_balance_fallback(
+    store: Store,
+    case: Case,
+    diagnosis: Diagnosis,
+    signal: FailureSignal,
+    *,
+    now: datetime,
+) -> None:
+    """Arm the blind retry that runs only if nobody answers the question.
+
+    Asking when to try again is better than guessing three times, but a
+    customer who never replies must not leave the case waiting forever. So
+    both are scheduled at once: the question now, and the guess after
+    `POLICY.reply_grace`. A reply naming a date cancels this one on its way
+    to scheduling a real retry for that date — `handle_reply`'s realignment
+    already cancels pending actions before it schedules, so nothing here
+    needs to know a reply happened.
+    """
+    if not _amount_permitted(
+        store, case, signal, now=now, action="fallback retry refused on amount"
+    ):
+        return
+
+    fallback_at = now + POLICY.reply_grace + backoff_for(diagnosis.klass, case.retry_count)
+    decision = schedule_retry(
+        fallback_at, retry_count=case.retry_count, now=now, method=signal.method
+    )
+    if decision.scheduled_for:
+        store.schedule_action(
+            case.id, case.customer_ref, "retry", decision.scheduled_for, now
+        )
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=now, decision_type="schedule",
+            action=(
+                f"fallback retry at {decision.scheduled_for:%Y-%m-%d %H:%M %Z}"
+                if decision.scheduled_for else "fallback retry refused"
+            ),
+            inputs={
+                "waits_for_reply": str(POLICY.reply_grace),
+                "diagnosis": diagnosis.klass.value,
+            },
+            rules_fired=[*decision.rules_fired, "AWAITING_REPLY"],
+            rule_version=decision.rule_version,
+            outcome=(
+                "runs only if the customer never names a date; a reply "
+                "cancels it and reschedules to the date they give"
+            ),
+        )
+    )
+
+
+def escalate_after_cap(
+    store: Store,
+    case: Case,
+    *,
+    klass: DiagnosisClass | None,
+    now: datetime,
+    refusal: str,
+) -> None:
+    """The retries are spent. Move up the ladder rather than going quiet.
+
+    Every path that asks for a retry — the first schedule, a promise-to-pay
+    realignment, a reviewer clearing a held case — can be refused by the cap,
+    and each one used to write "refused" to the audit trail and stop there. A
+    case with nothing pending and nobody told is not a decision; it is an
+    omission, and it is the one this ladder exists to prevent.
+
+    `next_rung` picks the next step. Where this deployment has no executor
+    for it — re-authorisation, a voice call, a human callback are all absent,
+    not stubbed — the fallback is a payable link, which is the one thing left
+    that can still recover the money without a debit adapter. That is said
+    plainly in the record rather than dressed up as the rung it isn't.
+    """
+    entry = ladder.entry_rung(klass) if klass else None
+    nxt = ladder.next_rung(entry) if entry else None
+    unavailable = []
+    while nxt is not None and ladder.SLUG[nxt] not in runner.EXECUTORS:
+        unavailable.append(ladder.LADDER[nxt].name)
+        nxt = ladder.next_rung(nxt)
+
+    if nxt is None:
+        # Nothing above is executable here. A link still is, unless one has
+        # already gone out — in which case the ladder really is finished and
+        # this belongs to a person.
+        if _exhausted_nudge_sent(store, case.id):
+            store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
+            store.record(
+                AuditRecord(
+                    case_id=case.id, at=now, decision_type="escalation",
+                    action="ladder exhausted",
+                    inputs={"refusal": refusal, "no_executor_for": unavailable},
+                    rules_fired=["LADDER_END"],
+                    outcome=(
+                        "retries spent and the recovery link already sent; "
+                        "nothing automated is left to try"
+                    ),
+                )
+            )
+            return
+        nxt = ladder.Rung.NUDGE
+
+    economics = ladder.evaluate(nxt, case.amount_paise)
+    if not economics.approved:
+        store.set_state(case.id, CaseState.UNRECOVERED)
+        store.record(
+            AuditRecord(
+                case_id=case.id, at=now, decision_type="escalation",
+                action=f"ladder terminated at rung {nxt.value} as uneconomic",
+                inputs={
+                    "rung": ladder.LADDER[nxt].name,
+                    "calculation": economics.calculation,
+                    "rested_on_an_assumed_rate": economics.assumption_used,
+                    "refusal": refusal,
+                },
+                rules_fired=economics.rules_fired,
+                rule_version=economics.rule_version,
+                outcome=economics.reason,
+            )
+        )
+        return
+
+    store.schedule_action(
+        case.id, case.customer_ref, ladder.SLUG[nxt], now, now,
+        variant=notify.NudgeVariant.EXHAUSTED.value,
+    )
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=now, decision_type="escalation",
+            action=f"retries spent; escalating to rung {nxt.value}: {ladder.LADDER[nxt].name}",
+            inputs={
+                "refusal": refusal,
+                "no_executor_for": unavailable,
+                "calculation": economics.calculation,
+                "rested_on_an_assumed_rate": economics.assumption_used,
+            },
+            rules_fired=[*economics.rules_fired, "ESCALATED_AFTER_CAP"],
+            rule_version=economics.rule_version,
+            outcome=ladder.LADDER[nxt].why,
+        )
+    )
+
+
+def _exhausted_nudge_sent(store: Store, case_id: str) -> bool:
+    """Whether the "we tried, here is a link" message has already gone out.
+
+    Read from the audit trail rather than tracked separately, so it stays
+    true for a case worked across several processes — and so it cannot drift
+    from what actually happened.
+    """
+    return any(
+        record.decision_type == "escalation" and "ESCALATED_AFTER_CAP" in record.rules_fired
+        for record in store.timeline(case_id)
+    )
 
 
 def apply_stop(
@@ -414,6 +621,13 @@ def handle_reply(
         # governed by NPCI's UPI bands while the original was not — the same
         # case banded on one path and unbanded on the other.
         signals = store.signals(case.id)
+        if not _amount_permitted(
+            store, case, signals[0] if signals else None,
+            now=now, action="realignment refused on amount",
+        ):
+            if outcome.suspend_nudges_until:
+                store.suspend_nudges_until(case.id, outcome.suspend_nudges_until)
+            return parsed, outcome
         decision = schedule_retry(
             target,
             retry_count=case.retry_count,
@@ -439,6 +653,24 @@ def handle_reply(
                 outcome=decision.reason,
             )
         )
+        # The date they gave now actually silences nudges until it arrives.
+        # The shell has always computed `suspend_nudges_until`; nothing read
+        # it, so a customer who named the 2nd could still be nudged on the 1st.
+        if outcome.suspend_nudges_until:
+            store.suspend_nudges_until(case.id, outcome.suspend_nudges_until)
+        if not decision.accepted:
+            # They asked for a date the cap can no longer honour. Saying only
+            # "refused" into an audit trail leaves someone who just told us
+            # when they would pay with nothing at all — so the ladder answers
+            # instead, with a link and the reason it is arriving.
+            latest = store.latest_diagnosis(case.id)
+            escalate_after_cap(
+                store,
+                store.get_case(case.id) or case,
+                klass=latest.klass if latest else None,
+                now=now,
+                refusal=decision.reason,
+            )
 
     return parsed, outcome
 
@@ -527,10 +759,26 @@ def resume_after_review(
     backoff on top of one already served waiting for a person: the review
     itself was the wait. NPCI's bands and the retry cap still apply exactly as
     they do everywhere else — a case that had already exhausted its cycle
-    before being held is refused here too, not silently re-armed.
+    before being held is refused here too, not silently re-armed. Refused is
+    not the same as abandoned, though: `escalate_after_cap` takes it from
+    there, so a reviewer clearing a case whose retries are spent gets the
+    next rung rather than a case that goes quiet the moment they approve it.
     """
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
     signals = store.signals(case.id)
+    if not _amount_permitted(
+        store, case, signals[0] if signals else None,
+        now=now, action="re-arm after review refused on amount",
+    ):
+        return ScheduleDecision(
+            scheduled_for=None,
+            accepted=False,
+            reason="the amount itself is not permissible; a person cleared the hold, "
+                   "not the ceiling",
+            rule_version=limits.LIMIT_RULE_VERSION,
+            rules_fired=["AMOUNT_REFUSED"],
+            requested=now,
+        )
     decision = schedule_retry(
         now, retry_count=case.retry_count, now=now,
         method=signals[0].method if signals else None,
@@ -551,6 +799,12 @@ def resume_after_review(
             outcome=decision.reason,
         )
     )
+    if not decision.accepted:
+        latest = store.latest_diagnosis(case.id)
+        escalate_after_cap(
+            store, case, klass=latest.klass if latest else None,
+            now=now, refusal=decision.reason,
+        )
     return decision
 
 

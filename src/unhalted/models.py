@@ -9,7 +9,7 @@ downstream of normalisation knows or cares which source it came from.
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -140,6 +140,10 @@ class Case(BaseModel):
     state: CaseState = CaseState.OPEN
     opened_at: datetime
     retry_count: int = 0
+    #: A date the customer named for payment. No nudge fires before it —
+    #: the shell has always computed this from a promise-to-pay reply, and
+    #: until it was persisted here nothing ever read it back.
+    nudges_suspended_until: date | None = None
 
     @property
     def amount_rupees(self) -> float:

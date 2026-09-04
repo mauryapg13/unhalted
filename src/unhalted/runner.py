@@ -53,7 +53,14 @@ from typing import Any
 
 from unhalted.models import AuditRecord, CaseState
 from unhalted.shell import paylink, windows
-from unhalted.shell.notify import ConsoleNotifier, Message, Notifier, deliver, nudge_body
+from unhalted.shell.notify import (
+    ConsoleNotifier,
+    Message,
+    Notifier,
+    NudgeVariant,
+    body_for,
+    deliver,
+)
 from unhalted.store import Store
 
 log = logging.getLogger("unhalted.runner")
@@ -129,10 +136,28 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
     this rung as the way someone pays from a different account rather than
     waits on a retry of the mandate that just failed. A link that fails to
     generate does not hold the nudge; it goes out without one.
+
+    Which message it carries is the decision's to make, not this function's:
+    the `variant` recorded on the action picks the wording, and an action
+    scheduled without one gets the first-touch text, which assumes least.
     """
     case = store.get_case(action["case_id"])
     if case is None:
         return Outcome("failed", "the case this action belongs to is gone")
+
+    # A promise the customer made outranks a message this system planned. The
+    # shell has always computed the date; until it was persisted and read here,
+    # a customer who said "the 2nd" could still be nudged on the 1st.
+    if case.nudges_suspended_until and now.date() < case.nudges_suspended_until:
+        resume = datetime.combine(
+            case.nudges_suspended_until, windows.CONTACT_OPEN, tzinfo=windows.IST
+        )
+        return Outcome(
+            "pending",
+            f"not sent: the customer asked to be tried on "
+            f"{case.nudges_suspended_until.isoformat()}",
+            retry_at=resume,
+        )
 
     # A link is a real network call to Razorpay; check contact hours first so
     # one is not spent generating it for a message that will not go out this
@@ -145,15 +170,23 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
             retry_at=windows.next_allowed_contact(now),
         )
 
-    link = paylink.create_payment_link(
-        amount_paise=case.amount_paise,
-        description=f"payment retry for {case.id}",
-        reference_id=case.id,
-    )
+    variant = action.get("variant")
+    # Asking someone to name a date does not need a payable link, and a link
+    # is a real API call with a real rate limit. Only fetch one for the
+    # messages that actually carry it.
+    link = None
+    if variant != NudgeVariant.ASK_DATE.value:
+        link = paylink.create_payment_link(
+            amount_paise=case.amount_paise,
+            description=f"payment retry for {case.id}",
+            reference_id=case.id,
+        )
     notifier: Notifier = ConsoleNotifier()
     message = Message(
         customer_ref=case.customer_ref,
-        body=nudge_body(case.amount_rupees, pay_link=link.url if link else None),
+        body=body_for(
+            variant, case.amount_rupees, pay_link=link.url if link else None
+        ),
         case_id=case.id,
     )
     result = deliver(notifier, message, now=now)
@@ -261,6 +294,18 @@ def run_due(
             continue
 
         _record(store, action, outcome, now, who)
+
+        # One debit attempt, counted against this case's NPCI allowance —
+        # whatever came back. Deferrals below never reach here, so a nudge
+        # moved out of contact hours is not an attempt and a retry that ran
+        # is, regardless of whether this deployment had an adapter to run it
+        # with. Without this the counter stayed at zero for a case's whole
+        # life, so every retry used tier one of the backoff and the cap could
+        # never be reached at all.
+        if kind == "retry" and not (
+            outcome.state == "pending" and outcome.retry_at is not None
+        ):
+            store.increment_retry_count(action["case_id"])
 
         if outcome.state == "pending" and outcome.retry_at is not None:
             store.return_action(action_id, scheduled_for=outcome.retry_at)

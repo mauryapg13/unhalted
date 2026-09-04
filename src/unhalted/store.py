@@ -23,7 +23,7 @@ import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,11 @@ CREATE TABLE IF NOT EXISTS cases (
     amount_paise  INTEGER NOT NULL,
     state         TEXT NOT NULL,
     opened_at     TEXT NOT NULL,
-    retry_count   INTEGER NOT NULL DEFAULT 0
+    retry_count   INTEGER NOT NULL DEFAULT 0,
+    -- A promise-to-pay date the customer named. Nudges do not fire before
+    -- it: the shell computed this from their reply long before anything
+    -- read it, so a customer who said "the 2nd" was still nudged on the 1st.
+    nudges_suspended_until TEXT
 );
 
 CREATE TABLE IF NOT EXISTS signals (
@@ -72,6 +76,11 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     case_id       TEXT NOT NULL REFERENCES cases(id),
     customer_ref  TEXT NOT NULL,
     kind          TEXT NOT NULL,
+    -- Which message this action carries, when `kind` alone does not say. A
+    -- nudge asking a customer to name a date and a nudge telling them the
+    -- retries are spent are the same executor and the same rung; only the
+    -- words differ, and the words are not the executor's to invent.
+    variant       TEXT,
     scheduled_for TEXT,
     state         TEXT NOT NULL DEFAULT 'pending',
     cancel_reason TEXT,
@@ -152,6 +161,8 @@ class Store:
         ("pending_actions", "worker", "TEXT"),
         ("pending_actions", "attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("pending_actions", "last_error", "TEXT"),
+        ("pending_actions", "variant", "TEXT"),
+        ("cases", "nudges_suspended_until", "TEXT"),
     )
 
     def _add_missing_columns(self) -> None:
@@ -327,9 +338,39 @@ class Store:
         with self._tx() as conn:
             conn.execute("UPDATE cases SET state = ? WHERE id = ?", (state.value, case_id))
 
+    def increment_retry_count(self, case_id: str) -> int:
+        """Count one debit attempt against this case's NPCI allowance.
+
+        Called once per executed `retry` action, whatever the outcome. The
+        counter drives both which backoff tier comes next and whether the
+        cap has been reached — and until this existed it was written once,
+        at zero, and never touched again, so every case sat permanently on
+        tier one with a cap it could never reach.
+        """
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE cases SET retry_count = retry_count + 1 WHERE id = ?", (case_id,)
+            )
+            row = conn.execute(
+                "SELECT retry_count FROM cases WHERE id = ?", (case_id,)
+            ).fetchone()
+        return int(row["retry_count"]) if row else 0
+
+    def suspend_nudges_until(self, case_id: str, until: date | None) -> None:
+        """Record the date a customer named, so no nudge fires before it."""
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE cases SET nudges_suspended_until = ? WHERE id = ?",
+                (until.isoformat() if until else None, case_id),
+            )
+
     @staticmethod
     def _row_to_case(row: sqlite3.Row) -> Case:
+        # `_LATE_COLUMNS` adds this to any database opened without it, so the
+        # column is present on every row by the time anything reads one.
+        suspended = row["nudges_suspended_until"]
         return Case(
+            nudges_suspended_until=date.fromisoformat(suspended) if suspended else None,
             id=row["id"],
             customer_ref=row["customer_ref"],
             amount_paise=row["amount_paise"],
@@ -428,17 +469,26 @@ class Store:
         kind: str,
         scheduled_for: datetime | None,
         at: datetime,
+        variant: str | None = None,
     ) -> int:
-        """Record an action the agent intends to take."""
+        """Record an action the agent intends to take.
+
+        `variant` says which message an action carries where `kind` alone
+        cannot: asking a customer to name a date and telling them the
+        retries are spent are the same rung and the same executor, and the
+        difference between them is a decision, not a detail the executor
+        should be inventing at send time.
+        """
         with self._tx() as conn:
             cur = conn.execute(
                 "INSERT INTO pending_actions"
-                " (case_id, customer_ref, kind, scheduled_for, state, created_at)"
-                " VALUES (?,?,?,?,'pending',?)",
+                " (case_id, customer_ref, kind, variant, scheduled_for, state, created_at)"
+                " VALUES (?,?,?,?,?,'pending',?)",
                 (
                     case_id,
                     customer_ref,
                     kind,
+                    variant,
                     scheduled_for.isoformat() if scheduled_for else None,
                     at.isoformat(),
                 ),

@@ -101,7 +101,13 @@ LADDER: dict[Rung, Intervention] = {
 #: Where a case joins the ladder, by what went wrong.
 ENTRY: dict[DiagnosisClass, Rung | None] = {
     DiagnosisClass.RECOVERABLE_TECHNICAL: Rung.SILENT_RETRY,
-    DiagnosisClass.RECOVERABLE_BALANCE: Rung.SILENT_RETRY,
+    # An empty account is the one failure whose fix depends on a fact no API
+    # reports: when the customer will have money. Three silent retries on a
+    # fixed schedule spend NPCI's whole allowance guessing at a date one
+    # question would have settled — so this asks first, retries against the
+    # answer, and falls back to the blind schedule only if nobody replies.
+    # `core/reply.py` has always argued this; the ladder just never did it.
+    DiagnosisClass.RECOVERABLE_BALANCE: Rung.NUDGE,
     # Re-notifying is the point; a silent retry repeats the failure.
     DiagnosisClass.NOTIFICATION_GAP: Rung.NUDGE,
     # Retries cannot succeed against a dead mandate. Skip straight to fixing it.

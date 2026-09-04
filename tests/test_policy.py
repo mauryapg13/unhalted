@@ -64,6 +64,7 @@ def minimal() -> dict:
             "cap": 3,
             "backoff": {"recoverable-technical": ["30m"]},
             "default_backoff": "6h",
+            "reply_grace": "25h",
         },
         "confidence": {"auto_execute": 0.9, "auto_execute_sampled_qa": 0.7},
         "reply_policy": {

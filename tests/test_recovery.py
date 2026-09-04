@@ -37,7 +37,9 @@ def test_recovery_sets_the_case_to_recovered(open_case) -> None:
 
 def test_recovery_cancels_the_scheduled_retry(open_case) -> None:
     store, case = open_case
-    assert len(store.pending_actions(case_id=case.id)) == 1  # the retry handle_failure scheduled
+    # A balance failure schedules both halves: the question asking when to
+    # try, and the fallback retry behind it. A recovery cancels both.
+    assert len(store.pending_actions(case_id=case.id)) == 2
 
     mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
 
@@ -58,7 +60,7 @@ def test_recovery_is_recorded_with_the_real_payment_it_closed_against(open_case)
 def test_recovery_returns_how_many_pending_actions_it_cancelled(open_case) -> None:
     store, case = open_case
     cancelled = mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
-    assert cancelled == 1
+    assert cancelled == 2
 
 
 def test_the_customer_is_told_it_settled(open_case, capsys) -> None:
