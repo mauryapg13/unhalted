@@ -43,6 +43,12 @@
   longer double-reported — it already gets its own `RECOVERED` event from the audit trail, and the
   matching `cancel_pending("RECOVERED", ...)` entry is now suppressed rather than printed a second
   time as an unlabelled cancellation.
+- `unhalted policy` — prints the currently loaded policy (which file, its version, every NPCI
+  band, contact hour, retry cap, backoff tier, confidence threshold, reply-policy threshold,
+  ladder cost, mandate limit), read from the live `unhalted.policy.POLICY` object rather than the
+  raw YAML — so it reflects a real `UNHALTED_POLICY` override, not just the shipped file. Closes
+  the gap where the only way to check "what is configured right now" was asking someone to read
+  `config/policy.yaml` for you.
 - `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
   threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
   confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
