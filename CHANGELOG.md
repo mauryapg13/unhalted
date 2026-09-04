@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Fixed
+- `core/scenarios.py` supplied `error_source = "gateway"` for all five of its injectable scenarios
+  alike — a placeholder that matched the three real captured fixtures (issue #8) but was never
+  grounded in what each of these five specific reasons actually is. `core/taxonomy.py`'s own rule
+  for `payment_timed_out` reads a different class for `"customer"` than for `"bank"`, and
+  `"gateway"` was neither, so it fell through to the ambiguous fallback every time instead of
+  reaching `NOTIFICATION_GAP`. `ERROR_SOURCE` is now a mapping, one entry per reason, each quoting
+  the source `core/taxonomy.py`'s own rule already names — `payment_timed_out` now correctly reaches
+  `NOTIFICATION_GAP` at `DIRECT`/1.0 confidence. Verified live via `inject.py` and `classify.py`.
+  Recorded in `BREAKAGE.md`.
 - `scripts/session.py --scenario` run a second time against the same database matches back to the
   same case (by design — deterministic `payment_id`) and correctly prints no message box, since
   nothing was newly due. Step 4 still said "that boxed text above is what just arrived" anyway,

@@ -82,7 +82,8 @@ def test_injecting_one_produces_a_real_diagnosed_case(inject, store) -> None:
     signal = FailureSignal(
         payment_id="pay_INJECTED_insufficient_fund", customer_ref="cust_injected_insufficient_fund",
         amount_paise=inject.AMOUNT_PAISE, occurred_at=NOW, source="inject",
-        method=inject.METHOD, error_reason="insufficient_fund", error_source=inject.ERROR_SOURCE,
+        method=inject.METHOD, error_reason="insufficient_fund",
+        error_source=inject.ERROR_SOURCE["insufficient_fund"],
     )
     case = handle_failure(store, signal, now=NOW)
 
@@ -99,7 +100,8 @@ def test_the_same_reason_run_twice_matches_back_rather_than_duplicating(inject, 
             FailureSignal(
                 payment_id="pay_INJECTED_card_declined", customer_ref="cust_injected_card_declined",
                 amount_paise=inject.AMOUNT_PAISE, occurred_at=NOW, source="inject",
-                method=inject.METHOD, error_reason="card_declined", error_source=inject.ERROR_SOURCE,
+                method=inject.METHOD, error_reason="card_declined",
+                error_source=inject.ERROR_SOURCE["card_declined"],
             ),
             now=NOW,
         )

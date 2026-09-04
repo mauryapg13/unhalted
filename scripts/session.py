@@ -109,7 +109,7 @@ def scenario_signal(reason: str, *, now) -> FailureSignal:
         source="inject",
         method=METHOD,
         error_reason=reason,
-        error_source=ERROR_SOURCE,
+        error_source=ERROR_SOURCE[reason],
     )
 
 

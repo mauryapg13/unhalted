@@ -702,3 +702,41 @@ already contacted in an earlier run).
 **The lesson:** the previous fix already knew "contacted" and "contacted right now" were different
 questions — it built `ever_delivered` specifically to answer the first one correctly. It just never
 noticed the display code still needed the second answer too, and reused the first for both.
+
+---
+
+### One placeholder `error_source` for five different reasons hid what each one meant
+**Date:** 2026-09-05
+
+**What happened:** asked why `payment_timed_out` never showed the NPCI window restriction and, in
+the same conversation, why it and `card_declined` always land on `recoverable-technical` — a silent
+retry with no debit adapter — rather than ever notifying the customer. `core/taxonomy.py`'s own
+rule for `payment_timed_out` reads a *different* class depending on `error_source`: `"customer"`
+gives `NOTIFICATION_GAP`, `"bank"` gives `RECOVERABLE_TECHNICAL`. `core/scenarios.py`, which builds
+every signal `scripts/inject.py` and `scripts/session.py --scenario` ever produce, supplied
+`error_source = "gateway"` for all five scenarios alike — which matches neither `"customer"` nor
+`"bank"`, so `payment_timed_out` fell through to the taxonomy's ambiguous, lower-confidence
+fallback every time, and could never reach the class its own name and gloss describe.
+
+**Why:** `"gateway"` was never grounded in anything about these five reasons specifically — it
+matched the three *real captured* fixtures (issue #8's generic `payment_failed`/`gateway`), and got
+reused for these five different, synthetic scenarios by habit rather than by checking what each one
+actually is. `insufficient_fund`, `gateway_technical_error`, `card_declined` and
+`authentication_failed` each only have one taxonomy rule (any source), so the placeholder happened
+to not change their classification — the gap was invisible for four of five reasons and only bit on
+the one whose rule actually branches on source.
+
+**What changed:** `ERROR_SOURCE` is now a mapping, one entry per reason, each quoting the exact
+source `core/taxonomy.py`'s own rule for that reason already names — not invented here.
+`payment_timed_out` now correctly supplies `"customer"`, matching the manual-checkout-timeout
+scenario `docs/capturing-fixtures.md` actually names it for, and reaches `NOTIFICATION_GAP` at
+`DIRECT` confidence (1.0, `auto-execute` authority) instead of the ambiguous fallback. Verified
+live via both `scripts/inject.py payment_timed_out` and `scripts/classify.py`. All four call sites
+(`inject.py`, `session.py`, `classify.py`, and the test suite) updated from the shared constant to
+a per-reason lookup.
+
+**The lesson:** a placeholder that happens not to change most outcomes is still a placeholder, and
+the one case where it silently does matter is exactly the one nobody was looking at — the same
+shape as the `payment_timed_out`/`payment_risk_check_failed` split this project's own taxonomy
+comments already warn about for diagnosis in general, just found here in the fixture data feeding
+it rather than in the taxonomy itself.
