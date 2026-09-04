@@ -75,7 +75,15 @@ def main() -> int:
     ap.add_argument("--file", help="read the circular from this file instead of stdin")
     args = ap.parse_args()
 
-    text = pathlib.Path(args.file).read_text() if args.file else sys.stdin.read()
+    if args.file:
+        text = pathlib.Path(args.file).read_text()
+    else:
+        # A wait with nothing on screen reads as a hang, not a wait — the
+        # exact bug the reviewer terminal had before it was fixed to say so.
+        if sys.stdin.isatty():
+            print("Paste the circular text, then press Ctrl-D on its own line when done "
+                  "(Ctrl-C to cancel):", file=sys.stderr)
+        text = sys.stdin.read()
 
     if not text.strip():
         print("no text given — pipe one in, or pass --file")

@@ -34,6 +34,13 @@
   fifteen screens later.
 
 ### Fixed
+- `scripts/propose_policy_change.py` silently blocked forever when run with no `--file` and
+  nothing piped in — waiting on `stdin`, correctly, but with nothing printed first, which is
+  indistinguishable from a hang. Caught live: it sat for 30 minutes before being reported. The
+  same shape as the reviewer-hang fix from earlier this session, on a script built the same week
+  and missing the lesson: an interactive terminal now sees what it's waiting for and how to
+  finish (`Ctrl-D`) before the read blocks; piped input and `--file` are unaffected, confirmed by
+  tests that fake both paths rather than assumed unaffected.
 - A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
   and scheduling on whether *this call* had just created the case row, which is a different
   question from whether the signal had actually been worked — `ingest/webhooks.py` creates that

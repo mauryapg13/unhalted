@@ -412,3 +412,27 @@ durability pre-creation in `webhooks.py` was added for an honest reason — a si
 slow work starts — and nobody re-checked what it did to a flag a different function was reading
 for an unrelated decision three calls away. Found the same way the double-claim bug was: by
 actually running the scenario the architecture was supposed to handle, not by reasoning about it.
+
+---
+
+### A wait with nothing on screen looks exactly like a hang
+**Date:** 2026-09-04
+
+**What happened:** `scripts/propose_policy_change.py`, run with no `--file` and nothing piped in,
+sat with no output for 30 minutes. Reported by the person actually running it — not a test, a real
+terminal, a real pasted command, and a real "is this stuck?".
+
+**Why:** with no `--file`, the script falls to `sys.stdin.read()`, which is correct when input is
+piped in but blocks silently waiting for `Ctrl-D` when the terminal is interactive and nothing has
+been redirected. Nothing printed anything first. This is the identical shape of bug the reviewer
+terminal had — a wait that does not announce itself is indistinguishable from broken — just found
+on a script built the same week as that fix, by not applying the lesson to the new code.
+
+**What changed:** `sys.stdin.isatty()` is checked before reading; on a real terminal it prints what
+it is waiting for and how to finish (`Ctrl-D` on its own line) before blocking. Piped input and
+`--file` are unaffected — confirmed directly, not assumed, by a test that fakes `isatty()` both
+ways and a test proving `--file` never touches `stdin` at all.
+
+**The lesson:** the reviewer-hang fix earlier this session was treated as a fix for the reviewer,
+not as a rule for anything that waits on input. It should have been the second: "a wait says so" is
+a property every interactive entry point needs, not a patch for the one place it was first noticed.
