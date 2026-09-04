@@ -6,8 +6,10 @@
     unhalted queue                  what is waiting on a person
     unhalted report                 the batch numbers
     unhalted breakeven              what the money argument rests on
+    unhalted calibration            whether confidence predicts outcome, on real cases only
     unhalted run-due                execute the actions that have come due
     unhalted capabilities           what this account can actually do
+    unhalted policy                 the currently loaded policy — every threshold enforced
 
 The audit trail is the only account of what happened that anyone should trust,
 and until now reading it meant writing a query. That is the gap this closes:
@@ -18,6 +20,7 @@ the same thing, and none of them should need the schema.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 import textwrap
@@ -306,15 +309,58 @@ def show_breakeven(store: Store) -> int:
     return 0
 
 
+def show_calibration(store: Store) -> int:
+    """Whether confidence predicts outcome, on real cases only.
+
+    Issue #7 could not be settled on generated data — the correct class is
+    whatever the generator picked, so "did the confident ones do better" has
+    no honest answer there. `mark_recovered` gives some cases a real,
+    non-generated outcome for the first time; this is what that makes
+    measurable, however small the sample is today.
+    """
+    from unhalted.measure.calibration import measure, render
+
+    cases = [
+        (store.latest_diagnosis(case.id), case.state)
+        for case in store.all_cases()
+    ]
+    print(render(measure(cases)))
+    return 0
+
+
 # -- unhalted report ----------------------------------------------------------
 
 
 def show_report() -> int:
-    report = ROOT / "docs" / "batch-measurement.md"
-    if not report.exists():
+    """The batch, glanced at rather than read.
+
+    The full argument for each number lives in docs/batch-measurement.md — a
+    document meant to be opened in something that renders markdown. Printing
+    it raw to a terminal meant every pipe character and every `**bold**`
+    showed up literally; this reads the same run's numbers from the summary
+    `scripts/run_batch.py` saves beside it and renders them for a screen
+    instead, with the full doc named at the bottom for whoever wants the case
+    behind a number rather than just the number.
+    """
+    import dataclasses
+
+    from unhalted.measure.report import Totals, render_terminal
+
+    summary = ROOT / "docs" / "batch-measurement.json"
+    if not summary.exists():
         print("no batch measurement yet. Run: uv run python scripts/run_batch.py")
         return 1
-    print(report.read_text())
+
+    data = json.loads(summary.read_text())
+    fields = {f.name for f in dataclasses.fields(Totals)}
+    agent = Totals(**{k: v for k, v in data["agent"].items() if k in fields})
+    base = Totals(**{k: v for k, v in data["base"].items() if k in fields})
+
+    print(render_terminal(
+        agent, base,
+        cases_count=data["cases_count"], holdout=data["holdout"],
+        total_paise=data["total_paise"], generated_at=data["generated_at"],
+    ))
     return 0
 
 
@@ -345,6 +391,65 @@ def show_capabilities() -> int:
         print(f"  {mark}  {name:<24} {d(note)}")
     print(d("\n  UPI Autopay transport: absent — the rules are implemented and tested,"))
     print(d("  the account cannot be provisioned for it. See CHECKPOINTS.md.\n"))
+    return 0
+
+
+def _fmt_td(td) -> str:
+    seconds = int(td.total_seconds())
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}d"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 60}m"
+
+
+def show_policy() -> int:
+    """The policy actually in effect right now — not the file, the loaded,
+    validated values every enforcement path reads. A reader who wants to
+    verify a claim in the README, or check what a proposed change from
+    `scripts/propose_policy_change.py` would be changing, should not have to
+    open config/policy.yaml and parse it by eye.
+    """
+    from unhalted import policy as policy_mod
+
+    p = policy_mod.POLICY
+    print(f"\n{b('policy')}  {d(f'loaded from {config.policy_path()}')}")
+    print(f"  {d('version')}  {p.version}")
+
+    print(f"\n  {b('NPCI execution bands')}  {d(f'({p.npci_rule_version})')}")
+    for start, end in p.npci_restricted_bands:
+        print(f"    {start:%H:%M}-{end:%H:%M} IST  {d('restricted, UPI Autopay only')}")
+
+    print(f"\n  {b('contact hours')}")
+    print(f"    {p.contact_open:%H:%M}-{p.contact_close:%H:%M} IST")
+
+    print(f"\n  {b('retries')}")
+    print(f"    cap  {p.retry_cap} per billing cycle")
+    for klass, tiers in p.backoff_raw.items():
+        print(f"    {klass:<24} " + ", ".join(_fmt_td(t) for t in tiers))
+    print(f"    {'(no schedule of its own)':<24} {_fmt_td(p.default_backoff)}")
+
+    print(f"\n  {b('confidence thresholds')}")
+    print(f"    auto-execute             >= {p.confidence_auto_execute:.2f}")
+    print(f"    auto-execute-sampled-qa  >= {p.confidence_sampled_qa:.2f}")
+    print("    hold-for-human           below that")
+
+    print(f"\n  {b('reply policy')}  {d(f'({p.reply_rule_version})')}")
+    print(f"    acts-on-money  >= {p.reply_acts_on_money:.2f}")
+    print(f"    protective     >= {p.reply_protective:.2f}")
+    print(f"    cancellation   >= {p.reply_cancellation:.2f}")
+
+    print(f"\n  {b('ladder costs')}  {d(f'({p.ladder_rule_version})')}")
+    for slug, paise in p.ladder_rung_costs_paise.items():
+        print(f"    {slug:<24} Rs {paise / 100:.0f}")
+
+    print(f"\n  {b('mandate limits')}  {d(f'({p.limit_rule_version})')}")
+    print(f"    frictionless UPI            Rs {p.frictionless_upi_paise / 100:,.0f}")
+    print(f"    frictionless UPI (BFSI)     Rs {p.frictionless_upi_bfsi_paise / 100:,.0f}")
+    print(f"    UPI mandate max             Rs {p.upi_mandate_max_paise / 100:,.0f}")
+    print(f"    card recurring max          Rs {p.card_recurring_max_paise / 100:,.0f}")
+    print(f"    emandate max                Rs {p.emandate_max_paise / 100:,.0f}")
+    print()
     return 0
 
 
@@ -414,8 +519,10 @@ def main(argv: list[str] | None = None) -> int:
 
     command("run-due", help="execute the actions that have come due")
     command("breakeven", help="what the money argument rests on")
+    command("calibration", help="whether confidence predicts outcome, on real cases only")
     command("report", help="the batch measurement")
     command("capabilities", help="what this deployment can do")
+    command("policy", help="the currently loaded policy — every threshold this system enforces")
 
     args = parser.parse_args(argv)
 
@@ -454,10 +561,19 @@ def dispatch(args) -> int:
         finally:
             store.close()
 
+    if args.command == "calibration":
+        store = open_store(args.db)
+        try:
+            return show_calibration(store)
+        finally:
+            store.close()
+
     if args.command == "report":
         return show_report()
     if args.command == "capabilities":
         return show_capabilities()
+    if args.command == "policy":
+        return show_policy()
 
     store = open_store(args.db)
     try:

@@ -15,7 +15,7 @@ from datetime import datetime
 
 import pytest
 
-from unhalted.agent import handle_failure
+from unhalted.agent import handle_failure, mark_recovered
 from unhalted.models import AuditRecord, CaseState, FailureSignal
 from unhalted.shell.windows import IST
 from unhalted.store import Store
@@ -76,6 +76,49 @@ def test_the_same_decision_is_not_reported_twice(schedule, held_case) -> None:
     second = schedule.audit_lines(store, seen, now=NOW)
     assert len(first) == 1
     assert second == []
+
+
+def test_a_recovery_is_reported(schedule, held_case) -> None:
+    """A customer paying through the recovery link closes the case in the
+    store; without this branch, nothing here said so."""
+    store, case = held_case
+    mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
+
+    lines = schedule.audit_lines(store, set(), now=NOW)
+    assert len(lines) == 1
+    assert "RECOVERED" in lines[0]
+    assert "paid via recovery link" in lines[0]
+
+
+def test_an_escalation_reads_as_escalated_not_cancelled(schedule) -> None:
+    action = {"id": 1, "case_id": "CASE-ABC", "kind": "retry", "cancel_reason": "HELD_FOR_HUMAN"}
+    line = schedule.cancellation_event(action, now=NOW)
+    assert "ESCALATED" in line
+    assert "held for a human" in line
+    assert "CANCELLED" not in line
+
+
+def test_every_held_for_human_stop_rule_also_reads_as_escalated(schedule) -> None:
+    for reason in ("DISPUTE", "DISTRESS", "CHARGEBACK", "REG_HOLD"):
+        action = {"id": 1, "case_id": "CASE-ABC", "kind": "retry", "cancel_reason": reason}
+        line = schedule.cancellation_event(action, now=NOW)
+        assert "ESCALATED" in line, f"{reason} should read as an escalation"
+
+
+def test_a_routine_cancellation_still_reads_as_cancelled(schedule) -> None:
+    """REALIGNED, RETRY_CAP and the like are not escalations — a promise-to-pay
+    changing the schedule is not the same event as a case needing a person."""
+    action = {"id": 1, "case_id": "CASE-ABC", "kind": "retry", "cancel_reason": "REALIGNED"}
+    line = schedule.cancellation_event(action, now=NOW)
+    assert "CANCELLED" in line
+    assert "ESCALATED" not in line
+
+
+def test_a_recovered_cancellation_is_not_reported_twice(schedule) -> None:
+    """RECOVERED already gets its own distinct event from audit_lines; this
+    branch would otherwise print the same real thing a second time."""
+    action = {"id": 1, "case_id": "CASE-ABC", "kind": "retry", "cancel_reason": "RECOVERED"}
+    assert schedule.cancellation_event(action, now=NOW) is None
 
 
 def test_an_unattributed_decision_still_says_someone_decided(schedule, held_case) -> None:

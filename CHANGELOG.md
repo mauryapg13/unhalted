@@ -3,6 +3,66 @@
 ## [Unreleased]
 
 ### Added
+- The README documented the ladder, the batch, and the reply corpus, but not the two things that
+  actually close a case or change its own rules: the payment-recovery loop (`payment_link.paid` →
+  `RECOVERED`, cancelled actions, a real confirmation) and the two proposers
+  (`propose_policy_change.py`, `propose_taxonomy_rule.py`) that change `config/policy.yaml` and
+  `core/taxonomy.py` from free text without ever writing either file themselves. Added two new
+  sections for both, `run-due` and the operational scripts (`inject.py`, `session.py`,
+  `schedule.py`, `review.py`) to the command list, and brought Layout up to date with what the
+  tree has actually held for a while — `agent.py`, `runner.py`, `store.py`, `cli.py`, and
+  `scripts/` were all missing from it entirely.
+- A customer who pays through the recovery link is told so. `mark_recovered` closed the case and
+  cancelled its pending actions but never sent a word back — the same silence a real WhatsApp
+  thread never would. It now sends a plain confirmation through the same notifier and the same
+  contact-hours gate a nudge uses, so nothing about a paid case is quieter than one still being
+  chased.
+- `unhalted calibration` — whether confidence predicts outcome, measured on real terminal cases
+  only, never generated ones. Issue #7 could not be settled on generated data because the correct
+  class there is whatever the generator picked; `mark_recovered` gives some cases a real,
+  non-generated outcome for the first time, and this groups them by the confidence band their
+  diagnosis fell into. A band under 20 cases is shown, not hidden, but explicitly flagged as too
+  few to conclude anything from — the honest state of things right now, not a bug in the report.
+  Revoked and false-failure closures are excluded from the recovery rate entirely rather than
+  counted as failures, since recovery was never the live question for either.
+- `scripts/propose_taxonomy_rule.py` and `core/taxonomy_proposal.py` — every `UNKNOWN`-diagnosed
+  held case was previously a dead end: nothing fed it back toward closing the taxonomy gap that
+  caused it. This clusters held cases by their exact `(method, error_reason, error_source,
+  error_step)` — plain grouping, no model needed — and, for a chosen cluster, proposes a rule
+  grounded in Razorpay documentation supplied by the caller, using the same evidence-quote
+  discipline `policy_change.py` already established. Never writes to `core/taxonomy.py`. Found a
+  real instance of the exact failure mode the prompt explicitly warns against while testing this
+  live: the model marked a rule `DIRECT` while its own rationale admitted the cause "is not
+  communicated" — recorded in `BREAKAGE.md`, and the reason nothing here applies a proposal
+  automatically.
+- `tui.spin` — a shimmering label that runs while a blocking model call is in flight, on a
+  background thread, and clears the moment it returns. Wired into the reviewer's briefing and
+  `propose_policy_change.py`, the two places a script waits on a live call with the terminal
+  otherwise silent. Off a terminal it prints the label once as a plain static line rather than
+  animating, matching every other degrade-off-a-tty rule in `tui.py`.
+- The loop `shell/paylink.py` opens now closes. A payment link is tagged with `reference_id=case.id`
+  (a documented field, verified against `api/payments/payment-links/create-standard.md`) when
+  created; `ingest/webhooks.py` now handles `payment_link.paid` (verified against
+  `webhooks/payment-links.md`), reads that reference straight back off the payload, and calls the
+  new `agent.mark_recovered` — the case moves to `CaseState.RECOVERED` (defined since the model was
+  written, never previously set anywhere), every pending retry and nudge is cancelled, and the real
+  payment id and amount are recorded in the audit trail. A paid link for an unknown case, or one
+  with no reference_id at all, is acknowledged and ignored rather than raised. This is what makes
+  "the customer paid a different way" a real, observable event instead of a retry quietly running
+  forever against money that already arrived.
+- `scripts/schedule.py` distinguishes an escalation from a routine cancellation. `HELD_FOR_HUMAN`,
+  `DISPUTE`, `DISTRESS`, `CHARGEBACK` and `REG_HOLD` — every stop whose terminal state is
+  `CaseState.HELD_FOR_HUMAN` — now render as `ESCALATED`, not `CANCELLED`; a promise-to-pay
+  realignment or a routine stop still reads as `CANCELLED`, since it is one. A recovery is no
+  longer double-reported — it already gets its own `RECOVERED` event from the audit trail, and the
+  matching `cancel_pending("RECOVERED", ...)` entry is now suppressed rather than printed a second
+  time as an unlabelled cancellation.
+- `unhalted policy` — prints the currently loaded policy (which file, its version, every NPCI
+  band, contact hour, retry cap, backoff tier, confidence threshold, reply-policy threshold,
+  ladder cost, mandate limit), read from the live `unhalted.policy.POLICY` object rather than the
+  raw YAML — so it reflects a real `UNHALTED_POLICY` override, not just the shipped file. Closes
+  the gap where the only way to check "what is configured right now" was asking someone to read
+  `config/policy.yaml` for you.
 - `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
   threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
   confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
@@ -34,6 +94,41 @@
   fifteen screens later.
 
 ### Fixed
+- `unhalted report` printed `docs/batch-measurement.md` straight to the terminal — every `|`,
+  every `**bold**`, every `##` heading, literally. `scripts/run_batch.py` now saves the numbers
+  behind the doc to `docs/batch-measurement.json` alongside it, and `measure/report.py` gained
+  `render_terminal()`, a plain-text sibling to the existing markdown `render()` sharing the same
+  `modelled_recovery()` math — refactored to take the batch's total exposure directly rather than
+  the case list it was summed from, which is also what let the terminal render reuse it without
+  needing the full generated batch back in memory. The full doc is still one line away for whoever
+  wants the argument behind a number, not just the number.
+- `scripts/session.py` scheduled `"nudge"` by hand and delivered it itself, regardless of what the
+  diagnosis actually was — a script exercising a shortcut and calling it the pipeline. It now calls
+  the real `run_due()`, the same function the CLI and the HTTP scheduler call, so whatever the
+  ladder actually scheduled — a retry, a nudge, or nothing — is what runs, contact hours included.
+- The ladder's escalation had never actually run through `run_due`. `agent.py` scheduled every
+  non-`SILENT_RETRY` rung with `kind=Intervention.name` (prose for a human, e.g. "message with a
+  pay link") instead of a key `runner.EXECUTORS` holds, and `scheduled_for=None`, which the
+  claiming query's `scheduled_for <= now` can never satisfy — either fault alone left the row
+  permanently unclaimable. Found live: injecting `authentication_failed` scheduled a nudge that
+  `unhalted case` showed correctly but `unhalted run-due` reported `claimed=0` for. `ladder.py`'s
+  `_SLUG` map is now public `SLUG` and `agent.py` schedules with `ladder.SLUG[rung]` and a real due
+  time, matching how a retry is scheduled. `NUDGE` now genuinely executes end to end;
+  `REAUTHORISATION`/`VOICE_CALL`/`HUMAN_CALLBACK` still have no registered executor and now say so
+  honestly rather than *also* being unschedulable. A prior test had asserted the broken `kind`
+  string as correct; fixed, and a new integration test proves the row is claimable and executed,
+  not just shaped right. Recorded in `BREAKAGE.md`.
+- `scripts/propose_policy_change.py` silently blocked forever when run with no `--file` and
+  nothing piped in — waiting on `stdin`, correctly, but with nothing printed first, which is
+  indistinguishable from a hang. Caught live: it sat for 30 minutes before being reported. The
+  same shape as the reviewer-hang fix from earlier this session, on a script built the same week
+  and missing the lesson: an interactive terminal now sees what it's waiting for and how to
+  finish (`Ctrl-D`) before the read blocks; piped input and `--file` are unaffected, confirmed by
+  tests that fake both paths rather than assumed unaffected.
+- The README claimed Razorpay's error-scenario test cards "yield specific documented error
+  reasons rather than generic failures." That was already settled negatively — issue #8, tested
+  on both checkout surfaces available to this account — and the README had simply never been
+  updated after the finding. Corrected to match `CHECKPOINTS.md`'s own recorded fact.
 - A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
   and scheduling on whether *this call* had just created the case row, which is a different
   question from whether the signal had actually been worked — `ingest/webhooks.py` creates that

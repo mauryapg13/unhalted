@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from unhalted import config
-from unhalted.agent import handle_failure
+from unhalted.agent import handle_failure, mark_recovered
 from unhalted.ingest.normalize import UnsupportedEvent, from_payment_failed
 from unhalted.models import AuditRecord, Case
 from unhalted.runner import run_due
@@ -38,7 +38,7 @@ app = FastAPI(title="unhalted", description="Mandate recovery agent")
 #: Events this endpoint acts on. Anything else is acknowledged and ignored —
 #: Razorpay will resend anything we reject, so a 4xx on an event we simply do
 #: not handle would produce a redelivery loop.
-HANDLED_EVENTS = {"payment.failed"}
+HANDLED_EVENTS = {"payment.failed", "payment_link.paid"}
 
 
 def get_store() -> Store:
@@ -94,6 +94,9 @@ async def razorpay_webhook(request: Request) -> dict[str, Any]:
             log.info("event %s already processed as %s", event_id, seen)
             return {"status": "duplicate", "case_id": seen}
 
+    if name == "payment_link.paid":
+        return _handle_payment_link_paid(store, event, event_id)
+
     try:
         signal = from_payment_failed(event)
     except UnsupportedEvent as e:
@@ -111,6 +114,44 @@ async def razorpay_webhook(request: Request) -> dict[str, Any]:
     case = handle_failure(store, signal)
 
     return {"status": "accepted", "case_id": case.id, "state": case.state.value}
+
+
+def _handle_payment_link_paid(
+    store: Store, event: dict[str, Any], event_id: str | None,
+) -> dict[str, Any]:
+    """The other half of the loop `shell/paylink.py` opens.
+
+    `reference_id` is the case id, set when the link was created
+    (`create_payment_link(..., reference_id=case.id)`) and echoed back
+    verbatim on this event — verified against `webhooks/payment-links.md`,
+    not assumed. A link paid for a case this store does not know about, or
+    one with no reference_id at all (an older link, or one created outside
+    this flow), is acknowledged and ignored rather than raised: Razorpay
+    considers the webhook delivered either way, and there is nothing here to
+    act on.
+    """
+    entity = (
+        event.get("payload", {}).get("payment_link", {}).get("entity", {})
+    )
+    reference_id = entity.get("reference_id")
+    payment_entity = event.get("payload", {}).get("payment", {}).get("entity", {})
+    payment_id = payment_entity.get("id", "")
+    amount_paise = payment_entity.get("amount") or entity.get("amount_paid") or 0
+
+    if not reference_id:
+        log.info("payment_link.paid with no reference_id; nothing to close")
+        return {"status": "ignored", "event": "payment_link.paid", "reason": "no reference_id"}
+
+    case = store.get_case(reference_id)
+    if case is None:
+        log.info("payment_link.paid for unknown case %r", reference_id)
+        return {"status": "ignored", "event": "payment_link.paid", "reason": "unknown case"}
+
+    if event_id:
+        store.mark_event(event_id, case.id, datetime.now(tz=windows.IST))
+
+    mark_recovered(store, case.id, payment_id=payment_id, amount_paise=int(amount_paise))
+    return {"status": "recovered", "case_id": case.id}
 
 
 @app.post("/internal/run-due")

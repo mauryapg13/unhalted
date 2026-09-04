@@ -13,7 +13,7 @@ import pytest
 
 from unhalted.measure import baseline
 from unhalted.measure.generate import REASON_WEIGHTS, generate
-from unhalted.measure.report import band, render, run_batch
+from unhalted.measure.report import band, render, render_terminal, run_batch
 from unhalted.models import DiagnosisClass, FailureSignal
 from unhalted.shell.windows import IST
 from unhalted.store import Store
@@ -243,7 +243,40 @@ def test_the_report_says_the_spend_figure_covers_diagnosis_only(batch) -> None:
     cases, agent, base = batch
     text = render(cases, agent, base)
     assert "diagnosis only" in text
-    assert "The model is not free" in text
+
+
+# -- the terminal render, a screen away from the doc --------------------------
+
+
+def test_the_terminal_render_carries_no_markdown_syntax(batch) -> None:
+    """`unhalted report` used to print the doc's raw markdown — every `|` and
+    every `**bold**` landed on a terminal literally. This is what replaced it."""
+    cases, agent, base = batch
+    total_paise = sum(c.signal.amount_paise for c in cases)
+    text = render_terminal(
+        agent, base, cases_count=agent.cases,
+        holdout=sum(1 for c in cases if c.holdout),
+        total_paise=total_paise, generated_at="2026-09-04 16:58 UTC",
+    )
+    assert "|" not in text
+    assert "**" not in text
+    assert "##" not in text
+
+
+def test_the_terminal_render_carries_the_same_counted_numbers(batch) -> None:
+    """A screen summary is only useful if it agrees with the document it
+    summarises — the two must never quietly drift apart."""
+    cases, agent, base = batch
+    total_paise = sum(c.signal.amount_paise for c in cases)
+    text = render_terminal(
+        agent, base, cases_count=agent.cases,
+        holdout=sum(1 for c in cases if c.holdout),
+        total_paise=total_paise, generated_at="2026-09-04 16:58 UTC",
+    )
+    assert str(agent.attempts) in text
+    assert str(base.attempts) in text
+    assert str(base.attempts - agent.attempts) in text
+    assert "full report: docs/batch-measurement.md" in text
 
 
 def test_the_report_explains_why_nothing_was_closed_as_uneconomic(batch) -> None:

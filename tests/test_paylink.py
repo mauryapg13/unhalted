@@ -59,6 +59,35 @@ def test_a_successful_response_returns_the_payable_url(monkeypatch):
     )
 
 
+def test_reference_id_is_sent_so_a_paid_link_can_be_traced_back(monkeypatch):
+    """Without this, ingest/webhooks.py has no way to know which case a
+    payment_link.paid event resolves — see api/payments/payment-links/
+    create-standard.md's own reference_id field."""
+    monkeypatch.setattr(paylink.config, "razorpay_key_id", lambda: "rzp_test_x")
+    monkeypatch.setattr(paylink.config, "razorpay_key_secret", lambda: "s3cr3t")
+    with patch(
+        "httpx.post",
+        return_value=FakeResponse(200, {"id": "plink_ABC123", "short_url": "https://rzp.io/i/x"}),
+    ) as mocked:
+        paylink.create_payment_link(
+            amount_paise=49900, description="test", reference_id="CASE-1AD69F26",
+        )
+    _, kwargs = mocked.call_args
+    assert kwargs["json"]["reference_id"] == "CASE-1AD69F26"
+
+
+def test_reference_id_is_absent_when_none_given(monkeypatch):
+    monkeypatch.setattr(paylink.config, "razorpay_key_id", lambda: "rzp_test_x")
+    monkeypatch.setattr(paylink.config, "razorpay_key_secret", lambda: "s3cr3t")
+    with patch(
+        "httpx.post",
+        return_value=FakeResponse(200, {"id": "plink_ABC123", "short_url": "https://rzp.io/i/x"}),
+    ) as mocked:
+        paylink.create_payment_link(amount_paise=49900, description="test")
+    _, kwargs = mocked.call_args
+    assert "reference_id" not in kwargs["json"]
+
+
 def test_a_refusal_returns_none_rather_than_raising(monkeypatch):
     monkeypatch.setattr(paylink.config, "razorpay_key_id", lambda: "id")
     monkeypatch.setattr(paylink.config, "razorpay_key_secret", lambda: "secret")

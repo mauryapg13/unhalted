@@ -21,6 +21,7 @@ from unhalted.models import (
     ParsedReply,
 )
 from unhalted.shell import ladder, limits, replies, stops, verify, windows
+from unhalted.shell.notify import ConsoleNotifier, Message, deliver
 from unhalted.shell.scheduler import ScheduleDecision, backoff_for, schedule_retry
 from unhalted.store import Store
 
@@ -188,7 +189,14 @@ def handle_failure(
     )
 
     if rung is not ladder.Rung.SILENT_RETRY:
-        store.schedule_action(case.id, case.customer_ref, ladder.LADDER[rung].name, None, now)
+        # `kind` must be the lookup key `runner.EXECUTORS` actually holds
+        # ("nudge"), not `Intervention.name` ("message with a pay link") —
+        # prose meant for a human, not a dict key nothing was ever going to
+        # match. Due now, not unscheduled: `execute_nudge` already checks
+        # contact hours itself and defers to the next allowed one if needed,
+        # the same as a retry does; a nudge with no due time at all could
+        # never become due for `run_due` to find in the first place.
+        store.schedule_action(case.id, case.customer_ref, ladder.SLUG[rung], now, now)
         return store.get_case(case.id) or case
 
     # Before any retry is scheduled, the money has to be permissible. This is
@@ -544,3 +552,46 @@ def resume_after_review(
         )
     )
     return decision
+
+
+def mark_recovered(
+    store: Store, case_id: str, *, payment_id: str, amount_paise: int,
+    now: datetime | None = None,
+) -> int:
+    """The customer paid through the recovery link. Returns how many pending
+    actions it cancelled.
+
+    Closes the loop `resume_after_review` opens: a retry re-armed after a
+    person's decision, or one already scheduled, has nothing left to do once
+    the money has arrived by a different route. This is not a stop rule —
+    nothing is wrong, the case is simply finished — so it does not go through
+    `stops.rule()`, which exists for refusals, not successes.
+
+    A customer who pays is owed a word back, the same as a real WhatsApp
+    thread would send one rather than going silent — this closed the case
+    silently until now. Same gate as a nudge: contact hours apply here too,
+    not just to messages asking for money.
+    """
+    now = windows.as_ist(now or datetime.now(tz=windows.IST))
+    case = store.get_case(case_id)
+    cancelled = store.cancel_pending("RECOVERED", case_id=case_id)
+    store.set_state(case_id, CaseState.RECOVERED)
+    store.record(
+        AuditRecord(
+            case_id=case_id,
+            at=now,
+            decision_type="recovery",
+            action="paid via recovery link",
+            inputs={"payment_id": payment_id, "amount_paise": amount_paise},
+            outcome=f"cancelled {cancelled} pending action(s); case recovered",
+        )
+    )
+    if case is not None:
+        message = Message(
+            customer_ref=case.customer_ref,
+            body=f"Payment of Rs {amount_paise / 100:.0f} received — thank you, this is settled.",
+            case_id=case_id,
+            kind="confirmation",
+        )
+        deliver(ConsoleNotifier(), message, now=now)
+    return cancelled

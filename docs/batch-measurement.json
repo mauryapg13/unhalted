@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-09-04 16:58 UTC",
+  "cases_count": 300,
+  "holdout": 21,
+  "total_paise": 12085000,
+  "agent": {
+    "cases": 300,
+    "attempts": 217,
+    "attempts_in_restricted_window": 0,
+    "futile_attempts": 0,
+    "messages": 56,
+    "intervention_paise": 9200,
+    "held_for_human": 27,
+    "closed_uneconomic": 0,
+    "by_class": {
+      "recoverable-technical": 107,
+      "recoverable-balance": 133,
+      "mandate-state-broken": 36,
+      "notification-gap": 20,
+      "unknown": 4
+    },
+    "by_rung": {
+      "rung 1": 217,
+      "rung 3": 36,
+      "rung 2": 20
+    },
+    "by_confidence_band": {
+      "<0.70 held": 27,
+      "0.70-0.89 sampled": 89,
+      ">=0.90 auto": 184
+    },
+    "by_source": {
+      "rules-table": 300
+    }
+  },
+  "base": {
+    "cases": 300,
+    "attempts": 900,
+    "attempts_in_restricted_window": 117,
+    "futile_attempts": 108,
+    "messages": 0,
+    "intervention_paise": 0,
+    "held_for_human": 0,
+    "closed_uneconomic": 0,
+    "by_class": {
+      "recoverable-technical": 107,
+      "recoverable-balance": 133,
+      "mandate-state-broken": 36,
+      "notification-gap": 20,
+      "unknown": 4
+    },
+    "by_rung": {},
+    "by_confidence_band": {},
+    "by_source": {}
+  }
+}
