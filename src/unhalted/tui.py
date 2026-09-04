@@ -15,7 +15,12 @@ from __future__ import annotations
 import re
 import shutil
 import sys
+import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import TypeVar
+
+T = TypeVar("T")
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -152,3 +157,71 @@ def relative(when: datetime | None, now: datetime) -> str:
 
 def clock(when: datetime) -> str:
     return f"{when:%d %b %H:%M}"
+
+
+# -- a wait that says so ------------------------------------------------------
+#
+# A blocking call with nothing printed first reads as a hang, not a wait — see
+# BREAKAGE.md's entry on `scripts/propose_policy_change.py`. `spin` is the fix
+# generalised: a label shimmers while `fn` runs on a background thread, so
+# anything waiting on the model looks like it's doing something, and the wait
+# ends the moment `fn` actually returns rather than after a fixed delay.
+
+_SPIN_WIDTH = 2
+_SPIN_FPS = 12.0
+
+
+def _shimmer(label: str, pos: int) -> str:
+    out = []
+    for i, ch in enumerate(label):
+        dist = abs(i - pos)
+        if ch == " ":
+            out.append(ch)
+        elif dist == 0:
+            out.append(paint(ch, BOLD, VIOLET))
+        elif dist <= _SPIN_WIDTH:
+            out.append(paint(ch, VIOLET))
+        else:
+            out.append(paint(ch, DIM))
+    return "".join(out)
+
+
+def spin(label: str, fn: Callable[[], T]) -> T:
+    """Run `fn` to completion, showing `label` shimmering while it does.
+
+    Off a terminal, prints `label` once as a plain static line — a recording
+    or a piped log gets one readable line, not a stream of carriage returns.
+    `fn`'s exception, if any, propagates from here exactly as it would from a
+    direct call; nothing here swallows or reframes a failure.
+    """
+    if not colour():
+        print(f"  {label}", flush=True)
+        return fn()
+
+    done = threading.Event()
+    box: dict[str, object] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as e:  # noqa: BLE001 - re-raised on the caller's thread below
+            box["error"] = e
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+
+    frame = 0
+    n = max(len(label), 1)
+    try:
+        while not done.wait(timeout=1 / _SPIN_FPS):
+            print(f"\r  {_shimmer(label, frame % n)}", end="", flush=True)
+            frame += 1
+    finally:
+        worker.join()
+        print("\r" + " " * (len(label) + 2) + "\r", end="", flush=True)
+
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["value"]  # type: ignore[return-value]

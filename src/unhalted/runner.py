@@ -148,6 +148,7 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
     link = paylink.create_payment_link(
         amount_paise=case.amount_paise,
         description=f"payment retry for {case.id}",
+        reference_id=case.id,
     )
     notifier: Notifier = ConsoleNotifier()
     message = Message(

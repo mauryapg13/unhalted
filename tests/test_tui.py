@@ -90,3 +90,52 @@ def test_a_box_frames_every_line_it_is_given() -> None:
     assert out.count("│") == 2
     assert "┌" in out
     assert "└" in out
+
+
+# -- spin ---------------------------------------------------------------------
+
+
+def test_off_a_terminal_spin_prints_the_label_once_and_returns_the_result() -> None:
+    """No animation possible without colour; a static line instead of nothing,
+    the same reasoning `paint` and `clear` already use."""
+    assert tui.spin("analyzing", lambda: 42) == 42
+
+
+def test_spin_returns_what_fn_returns_even_when_animating(monkeypatch) -> None:
+    monkeypatch.setattr(tui, "colour", lambda: True)
+    assert tui.spin("analyzing", lambda: "the answer") == "the answer"
+
+
+def test_spin_propagates_fns_exception_rather_than_swallowing_it(monkeypatch) -> None:
+    monkeypatch.setattr(tui, "colour", lambda: True)
+
+    def boom():
+        raise ValueError("the model call failed")
+
+    with pytest.raises(ValueError, match="the model call failed"):
+        tui.spin("analyzing", boom)
+
+
+def test_spin_propagates_an_exception_off_a_terminal_too() -> None:
+    def boom():
+        raise ValueError("still fails")
+
+    with pytest.raises(ValueError, match="still fails"):
+        tui.spin("analyzing", boom)
+
+
+def test_shimmer_never_colours_a_space(monkeypatch) -> None:
+    monkeypatch.setattr(tui, "colour", lambda: True)
+    frame = tui._shimmer("a b", 1)
+    # the space must survive untouched between the two letters' escape codes
+    assert "m m" not in frame  # a coloured space would show a code either side
+    assert " " in frame
+
+
+def test_shimmer_highlights_exactly_one_position_as_bold(monkeypatch) -> None:
+    monkeypatch.setattr(tui, "colour", lambda: True)
+    frame = tui._shimmer("abcde", 2)
+    # BOLD+VIOLET wraps exactly the character at the sweep position ('c')
+    assert tui.paint("c", tui.BOLD, tui.VIOLET) in frame
+    for other in "abde":
+        assert tui.paint(other, tui.BOLD, tui.VIOLET) not in frame

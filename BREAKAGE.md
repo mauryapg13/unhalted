@@ -446,3 +446,127 @@ beyond an empty response — the ten-token probe above returned nothing and gave
 the usage breakdown was actually read. "Reasoning models are slower" is true and also not
 specific enough to fix anything; the actual lever was one parameter, found by measuring rather
 than accepting the latency as a property of the model nobody could do anything about.
+
+---
+
+### A wait with nothing on screen looks exactly like a hang
+**Date:** 2026-09-04
+
+**What happened:** `scripts/propose_policy_change.py`, run with no `--file` and nothing piped in,
+sat with no output for 30 minutes. Reported by the person actually running it — not a test, a real
+terminal, a real pasted command, and a real "is this stuck?".
+
+**Why:** with no `--file`, the script falls to `sys.stdin.read()`, which is correct when input is
+piped in but blocks silently waiting for `Ctrl-D` when the terminal is interactive and nothing has
+been redirected. Nothing printed anything first. This is the identical shape of bug the reviewer
+terminal had — a wait that does not announce itself is indistinguishable from broken — just found
+on a script built the same week as that fix, by not applying the lesson to the new code.
+
+**What changed:** `sys.stdin.isatty()` is checked before reading; on a real terminal it prints what
+it is waiting for and how to finish (`Ctrl-D` on its own line) before blocking. Piped input and
+`--file` are unaffected — confirmed directly, not assumed, by a test that fakes `isatty()` both
+ways and a test proving `--file` never touches `stdin` at all.
+
+**The lesson:** the reviewer-hang fix earlier this session was treated as a fix for the reviewer,
+not as a rule for anything that waits on input. It should have been the second: "a wait says so" is
+a property every interactive entry point needs, not a patch for the one place it was first noticed.
+
+---
+
+### A settled fact never made it back to the README
+**Date:** 2026-09-04
+
+**What happened:** answering a live demo question about why every real webhook diagnoses the same
+way, `README.md`'s own "Honesty about the data" section — the one section whose whole job is to
+say what's real — claimed Razorpay's error-scenario test cards "yield specific documented error
+reasons rather than generic failures." Issue #8 had already tested that, twice, and closed it
+answered negatively.
+
+**Why:** the finding went into `CHECKPOINTS.md`'s Known facts table and the issue itself, both the
+right places — but the README paragraph making the opposite claim was written before the test ran
+and nobody came back to it afterward. Two documents disagreed with each other and nothing checked.
+
+**What changed:** the README now states what issue #8 actually found. `CHECKPOINTS.md` was already
+correct and needed no change — this was purely the README lagging behind a fact that had already
+been settled elsewhere.
+
+**The lesson:** "recorded in CHECKPOINTS.md so nobody spends another twenty minutes on it" (issue
+#8's own closing line) prevents re-litigating a question. It does not prevent a different document
+from quietly going on asserting the answer that question replaced. A fact settled once needs
+checking against everywhere it was claimed, not just recording once where it was settled.
+
+---
+
+### The taxonomy proposer's prompt warned against the exact mistake it then made
+**Date:** 2026-09-04
+
+**What happened:** the first live test of `scripts/propose_taxonomy_rule.py` — Razorpay's real
+`payment_risk_check_failed` documentation, "Payment declined due to risk checks... The source
+parameter would give additional clarity where the risk check failed" — came back `directness:
+DIRECT`. Its own `rationale` field, in the same response, said the specific cause "is not
+communicated." Those two statements contradict each other, and the model produced both at once.
+
+**Why:** the system prompt already says, in as many words: *"Never claim 'direct' for a reason
+their text says is ambiguous or unattributed."* This text is exactly that — Razorpay names three
+possible sources (Razorpay, Gateway, Issuer Bank) and says a separate parameter is needed to know
+which — and the model classified it as directly stated anyway, then wrote a rationale that
+correctly described why it shouldn't have.
+
+**What changed:** nothing in the prompt, yet. This is not a bug fixed by rereading the instruction
+harder — the instruction was already there, correctly worded, in the one response that violated
+it. What changed is confidence in why this project never lets a proposal write itself: a human
+reading this specific output would catch the contradiction between the field and its own
+justification in about two seconds, which is a much easier check than getting a model to reliably
+avoid making it in the first place.
+
+**The lesson:** a system prompt naming a failure mode is not the same as preventing it, the same
+lesson `BREAKAGE.md` already recorded once for a docstring naming a race condition six lines above
+the code that committed it. The difference here is that this was always the plan — `propose()`
+never writes to `core/taxonomy.py`, precisely because a model that can state the correct reasoning
+and still reach the wrong conclusion in the same breath is not a model whose conclusion should be
+trusted unread.
+
+---
+
+### The ladder's escalation had never actually run through `run_due`
+**Date:** 2026-09-04
+
+**What happened:** a live demo injected `authentication_failed` (classifies `NOTIFICATION_GAP`,
+enters the ladder at `NUDGE`), expecting a customer message with a pay link. `unhalted case`
+showed the nudge scheduled correctly on paper, but `unhalted run-due` reported `claimed=0` — the
+row was never picked up at all.
+
+`agent.py`'s escalation path scheduled every non-`SILENT_RETRY` rung with
+`store.schedule_action(case.id, case.customer_ref, ladder.LADDER[rung].name, None, now)`. Two
+faults, either one sufficient alone: `kind` was `Intervention.name` — prose meant for a human
+("message with a pay link", "re-authorisation link") — which never matched any key in
+`runner.EXECUTORS` (`"nudge"`, `"retry"`); and `scheduled_for` was passed as `None`, which can
+never satisfy the claiming query's `scheduled_for <= now`. The row existed, looked plausible in
+`unhalted case`, and could never be claimed by the real asynchronous runner for either reason
+independently of the other.
+
+**Why:** `scripts/session.py` has its own separate, hardcoded call —
+`store.schedule_action(case.id, signal.customer_ref, "nudge", now, now)` — that bypasses the
+ladder's naming entirely and was the only path ever exercised in a demo. `tests/test_ladder.py`
+asserted the escalation *row* looked right (`kind == "re-authorisation link"`) but nothing asserted
+the row was *claimable*, so a test locked in the broken kind string as correct, the same pattern
+this file has flagged before. The result: every "the pay link generates" claim made earlier this
+session was only ever true via `session.py`'s synchronous shortcut, never via the durable
+`run_due`/`scripts/schedule.py --run` path the architecture is actually built around.
+
+**What changed:** `ladder.py`'s previously-private `_SLUG` map (`Rung` → plain slugs matching
+`runner.EXECUTORS`'s keys: `"nudge"`, `"reauthorisation"`, etc.) is now public `SLUG`, and
+`agent.py` schedules with `store.schedule_action(case.id, case.customer_ref, ladder.SLUG[rung],
+now, now)` — a real due time, matching how a retry is scheduled, and a kind that actually matches
+an executor's lookup key. `NUDGE` now genuinely executes end to end. `REAUTHORISATION`,
+`VOICE_CALL` and `HUMAN_CALLBACK` still have no registered executor — scheduling them now
+correctly reports "no executor registered for 'reauthorisation'" instead of *also* being
+unschedulable, which is the honest absence this project's own rule calls for, not a stub. Added
+`tests/test_ladder.py::test_a_notification_gap_nudge_actually_runs_through_run_due`, which asserts
+`report.claimed == 1` and `report.done == 1` — a claim the older test's `kind`-string assertion
+could pass while the bug was still present.
+
+**The lesson:** a scheduled row that reads correctly in a case listing is not evidence it can ever
+be claimed. The only test that would have caught this is one that runs the claiming query, not one
+that inspects the row's fields — the same gap between "looks right" and "was run" that this file's
+webhook-redelivery and stdin-hang entries already found in other parts of the pipeline.

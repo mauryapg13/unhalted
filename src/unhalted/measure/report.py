@@ -122,16 +122,20 @@ def run_batch(cases: list[GeneratedCase], store) -> tuple[Totals, Totals]:
 
 
 def modelled_recovery(
-    cases: list[GeneratedCase], agent: Totals, rates: list[float]
+    total_paise: int, agent: Totals, rates: list[float]
 ) -> list[tuple[float, float, float]]:
     """Rupees recovered at several success rates. Not a measurement.
 
     Returns (rate, agent rupees, baseline rupees) per rate. The baseline can
     only recover from attempts that were not futile; the agent's advantage here
     is entirely that it does not spend attempts on failures a retry cannot fix.
+
+    Takes the batch's total exposure directly rather than the case list it
+    came from — the only thing this ever needed from a case was its amount,
+    already summed. That's also what lets a terminal render reuse this from a
+    persisted total, without needing the full generated batch back in memory.
     """
     out = []
-    total_paise = sum(c.signal.amount_paise for c in cases)
     futile_share = (
         agent.by_class.get(DiagnosisClass.MANDATE_STATE_BROKEN.value, 0)
         + agent.by_class.get(DiagnosisClass.UNKNOWN.value, 0)
@@ -184,7 +188,7 @@ def render(
     rungs = "\n".join(f"| {k} | {v} |" for k, v in sorted(agent.by_rung.items()))
     sensitivity = "\n".join(
         f"| {r:.0%} | Rs {a:,.0f} | Rs {b:,.0f} | Rs {a - b:,.0f} |"
-        for r, a, b in modelled_recovery(cases, agent, [0.20, 0.30, 0.40, 0.50])
+        for r, a, b in modelled_recovery(total_paise, agent, [0.20, 0.30, 0.40, 0.50])
     )
 
     return f"""# Batch measurement
@@ -298,3 +302,58 @@ whatever was generated. What *is* countable is how much the choice matters.
 |---|---:|---:|
 {bands}
 """
+
+
+def render_terminal(
+    agent: Totals,
+    base: Totals,
+    *,
+    cases_count: int,
+    holdout: int,
+    total_paise: int,
+    generated_at: str,
+    model_spend_paise: int = 0,
+) -> str:
+    """The same numbers as `render()`, for a terminal rather than a doc.
+
+    `render()` is meant to be read; this is meant to be glanced at while
+    somebody talks over it. No markdown syntax survives to the screen, and it
+    is deliberately shorter than Part one alone — the full report stays one
+    `cat docs/batch-measurement.md` away for anyone who wants the argument
+    behind each number, not just the number.
+    """
+    rupee = 100
+    model_calls = agent.by_source.get(DiagnosisSource.MODEL.value, 0)
+    w = 40
+
+    def row(label: str, a, b, note: str) -> str:
+        return f"  {label:<{w}}{a:>8}{b:>10}   {note}"
+
+    lines = [
+        (f"batch measurement   {cases_count} cases · Rs {total_paise / rupee:,.0f} at risk"
+         f" · {holdout} held out · {generated_at}"),
+        "",
+        f"  {'':<{w}}{'agent':>8}{'baseline':>10}",
+        row("debit attempts scheduled", agent.attempts, base.attempts,
+            f"{base.attempts - agent.attempts} fewer"),
+        row("attempts a retry could not fix", agent.futile_attempts, base.futile_attempts,
+            f"{base.futile_attempts - agent.futile_attempts} avoided"),
+        row("attempts inside NPCI restricted bands",
+            agent.attempts_in_restricted_window, base.attempts_in_restricted_window,
+            f"{base.attempts_in_restricted_window - agent.attempts_in_restricted_window} avoided"),
+        row("customer contacts", agent.messages, base.messages,
+            "baseline never contacts anyone"),
+        row("cases held for a human", agent.held_for_human, 0,
+            "baseline has no such path"),
+        "",
+        (f"  model calls for diagnosis   {model_calls} of {cases_count}"
+         f"   (Rs {model_spend_paise / rupee:,.2f} — zero is the measurement, not a gap)"),
+        f"  intervention spend          Rs {agent.intervention_paise / rupee:,.0f}",
+        "",
+        "  modelled recovery at an assumed success rate — not a measurement:",
+    ]
+    for rate, a_rup, b_rup in modelled_recovery(total_paise, agent, [0.20, 0.50]):
+        lines.append(f"    {rate:>4.0%} succeed   Rs {a_rup:>9,.0f}  vs  Rs {b_rup:>9,.0f}"
+                      f"   (+Rs {a_rup - b_rup:,.0f})")
+    lines += ["", "  full report: docs/batch-measurement.md"]
+    return "\n".join(lines)
