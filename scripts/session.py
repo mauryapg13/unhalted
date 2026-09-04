@@ -172,24 +172,26 @@ def main() -> int:
         fired = ("  " + ", ".join(r.rules_fired)) if r.rules_fired else ""
         print(f"    {r.decision_type:<10} {r.action}{DIM}{fired}{RESET}")
 
-    rule("3. Whatever the ladder scheduled actually runs")
+    # Known before step 3 runs, from the diagnosis alone — used to title that
+    # step honestly (a message arriving is not the same event as a retry
+    # nobody sees) and, after, to decide whether step 4 has anything to
+    # reply to at all.
+    rung = ladder.entry_rung(diagnosis.klass)
+    contacted = rung is not None and ladder.LADDER[rung].is_contact
+
+    rule("3. The message reaches the customer" if contacted else
+         "3. Whatever the ladder scheduled actually runs")
     # Not a hand-picked nudge: this is the same `run_due` that a real deployment's
     # scheduler or `/internal/run-due` calls. Whatever `handle_failure` actually
     # scheduled above — a nudge, a retry, a reauthorisation with no executor yet,
     # or nothing at all if the case sits at SILENT_RETRY with nothing due this
     # instant — is what executes here, contact hours and all. A hardcoded nudge
     # regardless of diagnosis was a script pretending to be the pipeline; this is
-    # the pipeline.
+    # the pipeline. On a contact rung, the boxed text above the report below is
+    # the actual message — printed by the same `ConsoleNotifier` a real channel
+    # adapter would stand in for, not reconstructed for display here.
     report = run_due(store, now=now)
     print(f"  {report.render()}")
-
-    # A reply is an answer to a message. `recoverable-technical` and
-    # `recoverable-balance` enter the ladder at SILENT_RETRY, which by design
-    # never contacts the customer — there is nothing here for them to be
-    # replying to. Prompting for one anyway asked you to answer a message
-    # this case never sent, the same shortcut step 3 used to take.
-    rung = ladder.entry_rung(diagnosis.klass)
-    contacted = rung is not None and ladder.LADDER[rung].is_contact
 
     if not contacted:
         rule("4. Nobody was contacted, so there is nothing to reply to")
@@ -207,8 +209,9 @@ def main() -> int:
     else:
         rule("4. Your turn — reply as the customer")
         print(
-            f"  {DIM}Type a reply and press enter, Ctrl-D to finish — or just pay the link: "
-            f"this ends on its own the moment the webhook confirms it.{RESET}"
+            f"  {DIM}That boxed text above is what just arrived on your phone. Type your "
+            f"reply to it and press enter, Ctrl-D to finish — or just pay the link: this ends "
+            f"on its own the moment the webhook confirms it.{RESET}"
         )
 
         while True:
