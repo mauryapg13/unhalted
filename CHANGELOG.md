@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/session.py --scenario REASON` — a real captured payment never reaches a contact rung
+  (issue #8), so the reply loop was previously unreachable by any command in the repository.
+  `--scenario` builds the same injected signal `scripts/inject.py` does, so `--scenario
+  authentication_failed` opens a genuine `NOTIFICATION_GAP` case with a real pay link and the
+  conversation actually attached to it — verified live, including a Hinglish promise-to-pay
+  realigning the retry (`PROMISE_ACCEPTED`, `retry realigned to 2026-10-02`).
+- The reply loop now notices a payment landing while it waits, instead of only ever reacting to
+  what you type. It used to block on `for line in sys.stdin`, which cannot see anything that isn't
+  a line of input — a customer who pays the link mid-conversation got no acknowledgement until
+  someone typed another reply, if ever. `select()` now polls the case's own state once a second
+  alongside waiting on stdin, so `payment received — this case is settled` prints and the script
+  exits the moment `mark_recovered` closes the case, verified live with nothing ever typed at all.
+
 ### Fixed
 - `scripts/session.py` asked for a reply as the customer even on a silent retry — a diagnosis that
   by design never contacts anyone, so there was never a message to be replying to. It now checks
