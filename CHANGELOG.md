@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/session.py` asked for a reply as the customer even on a silent retry — a diagnosis that
+  by design never contacts anyone, so there was never a message to be replying to. It now checks
+  whether the entry rung actually contacts the customer before offering the prompt, and explains
+  why there's nothing to reply to when it doesn't. Recorded in `BREAKAGE.md`.
+
 ### Added
 - The README documented the ladder, the batch, and the reply corpus, but not the two things that
   actually close a case or change its own rules: the payment-recovery loop (`payment_link.paid` →

@@ -570,3 +570,31 @@ could pass while the bug was still present.
 be claimed. The only test that would have caught this is one that runs the claiming query, not one
 that inspects the row's fields — the same gap between "looks right" and "was run" that this file's
 webhook-redelivery and stdin-hang entries already found in other parts of the pipeline.
+
+---
+
+### The customer terminal asked for a reply nobody sent a message to prompt
+**Date:** 2026-09-05
+
+**What happened:** live-testing `scripts/session.py` against a real captured payment (which always
+diagnoses `recoverable-technical` — Razorpay's test-mode limitation, issue #8), the script ran
+diagnosis and scheduling, executed a silent retry, and then unconditionally printed *"4. Your turn
+— reply as the customer"* and blocked on stdin. Asked directly: if this is a silent retry, no
+message ever went to the customer — so what are they replying to?
+
+**Why:** step 4 was written before step 3 was fixed to run through the real ladder (see the
+ladder-scheduling entry above). Back when step 3 unconditionally faked a nudge regardless of
+diagnosis, there was always a message to reply to, so the question never came up. Fixing step 3 to
+be honest about `SILENT_RETRY` never contacting anyone left step 4 behind: it still assumed a
+message went out, because it always used to.
+
+**What changed:** `session.py` now checks whether the diagnosis's entry rung is actually a contact
+rung (`ladder.LADDER[rung].is_contact`) before offering the reply prompt. `SILENT_RETRY` — the only
+rung a real captured payment can currently reach — now prints a plain explanation of why there is
+nothing to reply to instead of blocking on input for a message that was never sent, and points at
+`scripts/inject.py authentication_failed` for the one scenario that does reach a contact rung.
+
+**The lesson:** the two fixes were the same bug in two places, found a session apart. A pipeline
+step that gets fixed to reflect reality does not automatically make the step after it honest too —
+each one has to be checked against what actually happened, not against what the step before it used
+to unconditionally produce.

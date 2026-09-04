@@ -28,7 +28,7 @@ from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
 from unhalted.runner import run_due
-from unhalted.shell import windows
+from unhalted.shell import ladder, windows
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent
@@ -134,39 +134,62 @@ def main() -> int:
     report = run_due(store, now=now)
     print(f"  {report.render()}")
 
-    rule("4. Your turn — reply as the customer")
-    print(f"  {DIM}Type a reply and press enter. Ctrl-D to finish.{RESET}")
+    # A reply is an answer to a message. `recoverable-technical` and
+    # `recoverable-balance` enter the ladder at SILENT_RETRY, which by design
+    # never contacts the customer — there is nothing here for them to be
+    # replying to. Prompting for one anyway asked you to answer a message
+    # this case never sent, the same shortcut step 3 used to take.
+    rung = ladder.entry_rung(diagnosis.klass)
+    contacted = rung is not None and ladder.LADDER[rung].is_contact
 
-    for line in sys.stdin:
-        reply = line.strip()
-        if not reply:
-            continue
-
-        parsed, outcome = handle_reply(
-            store, case, reply,
-            context=f"A Rs {signal.amount_rupees:.0f} {MERCHANT} renewal failed. "
-                    f"Today is {today}.",
-            now=now,
+    if not contacted:
+        rule("4. Nobody was contacted, so there is nothing to reply to")
+        print(
+            f"  {DIM}{diagnosis.klass.value} enters the ladder at "
+            f"'{ladder.LADDER[rung].name if rung else 'no rung'}' — no message goes to the "
+            f"customer for this diagnosis, so a reply loop here would be answering something "
+            f"never sent.{RESET}"
         )
+        print(
+            f"  {DIM}see the reply loop with `uv run python scripts/inject.py "
+            f"authentication_failed` instead — the real captured payments only ever produce "
+            f"this diagnosis (issue #8).{RESET}"
+        )
+    else:
+        rule("4. Your turn — reply as the customer")
+        print(f"  {DIM}Type a reply and press enter. Ctrl-D to finish.{RESET}")
 
-        print(f"\n  {DIM}model{RESET}  " + (
-            f"parse failed after {parsed.attempts} attempts — {parsed.failure_reason}"
-            if parsed.failed else
-            "  ".join(f"{i.type.value}({i.confidence})" for i in parsed.intents) or "nothing read"
-        ))
-        if parsed.payment_date_raw:
-            print(f"         date proposed: {parsed.payment_date_raw}")
+        for line in sys.stdin:
+            reply = line.strip()
+            if not reply:
+                continue
 
-        print(f"  {DIM}shell{RESET}  " + "  ".join(outcome.rules_fired))
-        for reason in outcome.reasons:
-            print(f"         {DIM}{reason}{RESET}")
+            parsed, outcome = handle_reply(
+                store, case, reply,
+                context=f"A Rs {signal.amount_rupees:.0f} {MERCHANT} renewal failed. "
+                        f"Today is {today}.",
+                now=now,
+            )
 
-        state = store.get_case(case.id).state
-        pending = store.pending_actions(case_id=case.id)
-        print(f"  {DIM}agent{RESET}  case is {state.value}; "
-              f"{len(pending)} action(s) still scheduled")
-        if state is CaseState.HELD_FOR_HUMAN:
-            print(f"         {DIM}a person picks this up from here{RESET}")
+            print(f"\n  {DIM}model{RESET}  " + (
+                f"parse failed after {parsed.attempts} attempts — {parsed.failure_reason}"
+                if parsed.failed else
+                "  ".join(f"{i.type.value}({i.confidence})" for i in parsed.intents)
+                or "nothing read"
+            ))
+            if parsed.payment_date_raw:
+                print(f"         date proposed: {parsed.payment_date_raw}")
+
+            print(f"  {DIM}shell{RESET}  " + "  ".join(outcome.rules_fired))
+            for reason in outcome.reasons:
+                print(f"         {DIM}{reason}{RESET}")
+
+            state = store.get_case(case.id).state
+            pending = store.pending_actions(case_id=case.id)
+            print(f"  {DIM}agent{RESET}  case is {state.value}; "
+                  f"{len(pending)} action(s) still scheduled")
+            if state is CaseState.HELD_FOR_HUMAN:
+                print(f"         {DIM}a person picks this up from here{RESET}")
 
     rule("The case, as an auditor would read it")
     for r in store.timeline(case.id):
