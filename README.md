@@ -76,6 +76,40 @@ Sourced from NPCI and Razorpay's recurring-payments documentation, not invented:
 A merchant cannot pause a UPI mandate, only cancel it, so "pause recovery" always means pausing
 this program and never the mandate itself.
 
+## Closing the loop
+
+A nudge nobody can prove was paid, and a nudge that genuinely went unanswered, look identical to a
+system that doesn't tag its own links. `shell/paylink.py` tags every recovery link with
+`reference_id=case.id` — a documented Razorpay Payment Links field — and `ingest/webhooks.py`
+handles the real `payment_link.paid` event that comes back: the case closes as `RECOVERED`, every
+pending retry and nudge is cancelled, and the real payment id and amount land in the audit trail.
+The customer is told so — a plain confirmation through the same notifier and the same
+contact-hours gate a nudge uses, not silence.
+
+None of that runs on its own. `unhalted run-due` (also reachable over HTTP, at
+`/internal/run-due`, for a deployment with no long-running process of its own) is what executes a
+scheduled action against a durable, leased queue: a worker that dies mid-action does not strand it,
+a lease claims a row so two workers cannot take the same one, and a cancellation reaching a case
+between the claim and the execution always wins.
+
+## Closing gaps, proposed not applied
+
+Two things in this project change without a person editing code by hand, and both stop one step
+short of writing the file themselves:
+
+- **`config/policy.yaml`** is the one place every threshold this system enforces lives — NPCI
+  bands, contact hours, the retry cap, ladder costs, confidence thresholds.
+  `scripts/propose_policy_change.py` reads free text describing a regulatory change and proposes a
+  field-level diff, each value checked against the exact words in the source that justify it. It
+  has no filesystem-write call in it at all — a test inspects its own source to confirm that.
+- **`core/taxonomy.py`** is the rules table diagnosis resolves against. A case it cannot match sits
+  `UNKNOWN`, held for a human. `scripts/propose_taxonomy_rule.py` clusters those held cases by their
+  exact failure shape — method, error reason, source, step — and proposes a rule from documentation
+  supplied by the caller, the same evidence-quote discipline. The first live test of this caught
+  the model marking a rule `DIRECT` while its own stated reasoning said the cause "is not
+  communicated" — recorded in [`BREAKAGE.md`](BREAKAGE.md), and the reason neither proposer is
+  trusted to write its own answer in.
+
 ## Specification as test suite
 
 The behaviour is specified in Gherkin and executed as tests. Every regulatory constraint and every
@@ -192,12 +226,20 @@ uv run unhalted cases                 # what is open, held, closed
 uv run unhalted case CASE-8EF53CCD    # one case, end to end
 uv run unhalted compare CASE-8EF53CCD # the same case under Razorpay's retry policy
 uv run unhalted queue                 # what is waiting on a person
+uv run unhalted run-due               # execute whatever has come due, once — safe to run twice
 uv run unhalted breakeven             # what the money argument rests on
 uv run unhalted calibration           # whether confidence predicts outcome, on real cases only
-uv run unhalted report                # the batch measurement
+uv run unhalted report                # the batch measurement, glanced at rather than read
 uv run unhalted capabilities          # what this deployment can actually do
 uv run unhalted policy                # the currently loaded policy — every threshold enforced
 ```
+
+A case is not driven by the CLI alone. `scripts/inject.py` runs one of Razorpay's documented error
+scenarios through the real pipeline without waiting on a webhook; `scripts/session.py` does the
+same against a real captured payment, with you typing the customer's replies; `scripts/schedule.py`
+is the live view of the durable queue — scheduled, due, executed, recovered, as each happens; and
+`scripts/review.py` is where a held case actually gets approved, rejected, or reclassified by a
+person.
 
 `compare` is the one to run first. A single case shows no contrast on its own — the agent declines
 a futile retry, and a reader with nothing to compare it against sees a system doing nothing. Put
@@ -243,10 +285,19 @@ uv run uvicorn unhalted.ingest.webhooks:app --reload
 
 ```
 src/unhalted/
+  agent.py   the control loop — the only place that calls the model
+  runner.py  the durable queue's executor — leased, at-least-once, idempotent
+  store.py   SQLite: an append-only audit trail beside the pending-action queue
+  cli.py     unhalted <command> — the observability surface
+  policy.py  reads config/policy.yaml — every threshold, in one file
   ingest/    webhook verification, payload normalisation, case creation
-  core/      diagnosis, reply parsing, drafting        (the model lives here)
-  shell/     windows, caps, stops, lint, validation    (nothing here calls a model)
-  measure/   batch generation, holdout, reporting
+  core/      diagnosis, reply parsing, drafting, proposing     (the model lives here)
+  shell/     windows, caps, stops, ladder, lint, pay links     (nothing here calls a model)
+  measure/   batch generation, holdout, comparison, calibration, reporting
+scripts/
+  inject.py, session.py     drive a real case without waiting on a webhook
+  schedule.py, review.py    the live queue, and the human queue behind it
+  propose_*.py              a policy or taxonomy change, proposed from free text
 tests/
   features/  the specification, executed
 ```

@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- The README documented the ladder, the batch, and the reply corpus, but not the two things that
+  actually close a case or change its own rules: the payment-recovery loop (`payment_link.paid` →
+  `RECOVERED`, cancelled actions, a real confirmation) and the two proposers
+  (`propose_policy_change.py`, `propose_taxonomy_rule.py`) that change `config/policy.yaml` and
+  `core/taxonomy.py` from free text without ever writing either file themselves. Added two new
+  sections for both, `run-due` and the operational scripts (`inject.py`, `session.py`,
+  `schedule.py`, `review.py`) to the command list, and brought Layout up to date with what the
+  tree has actually held for a while — `agent.py`, `runner.py`, `store.py`, `cli.py`, and
+  `scripts/` were all missing from it entirely.
 - A customer who pays through the recovery link is told so. `mark_recovered` closed the case and
   cancelled its pending actions but never sent a word back — the same silence a real WhatsApp
   thread never would. It now sends a plain confirmation through the same notifier and the same
@@ -85,6 +94,14 @@
   fifteen screens later.
 
 ### Fixed
+- `unhalted report` printed `docs/batch-measurement.md` straight to the terminal — every `|`,
+  every `**bold**`, every `##` heading, literally. `scripts/run_batch.py` now saves the numbers
+  behind the doc to `docs/batch-measurement.json` alongside it, and `measure/report.py` gained
+  `render_terminal()`, a plain-text sibling to the existing markdown `render()` sharing the same
+  `modelled_recovery()` math — refactored to take the batch's total exposure directly rather than
+  the case list it was summed from, which is also what let the terminal render reuse it without
+  needing the full generated batch back in memory. The full doc is still one line away for whoever
+  wants the argument behind a number, not just the number.
 - `scripts/session.py` scheduled `"nudge"` by hand and delivered it itself, regardless of what the
   diagnosis actually was — a script exercising a shortcut and calling it the pipeline. It now calls
   the real `run_due()`, the same function the CLI and the HTTP scheduler call, so whatever the

@@ -119,6 +119,48 @@ def test_capabilities_reports_what_is_absent_not_only_what_works(capsys) -> None
     assert "taxonomy" in out.lower()
 
 
+def test_report_without_a_batch_says_so(tmp_path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    out = run(["report"], capsys)
+    assert "no batch measurement yet" in out
+
+
+def test_report_reads_the_saved_summary_not_the_raw_markdown(tmp_path, capsys, monkeypatch) -> None:
+    """`show_report` used to `print(doc.read_text())` — every `|` and `**` in
+    the markdown table syntax landed on the screen literally. This is the
+    seam that replaced it: a small saved summary, rendered for a terminal."""
+    import json
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    (tmp_path / "docs").mkdir()
+    summary = {
+        "generated_at": "2026-09-04 16:58 UTC",
+        "cases_count": 300,
+        "holdout": 21,
+        "total_paise": 12_085_000,
+        "agent": {
+            "cases": 300, "attempts": 217, "attempts_in_restricted_window": 0,
+            "futile_attempts": 0, "messages": 56, "intervention_paise": 9200,
+            "held_for_human": 27, "closed_uneconomic": 0,
+            "by_class": {}, "by_rung": {}, "by_confidence_band": {},
+            "by_source": {"rules-table": 300},
+        },
+        "base": {
+            "cases": 300, "attempts": 900, "attempts_in_restricted_window": 117,
+            "futile_attempts": 108, "messages": 0, "intervention_paise": 0,
+            "held_for_human": 0, "closed_uneconomic": 0,
+            "by_class": {}, "by_rung": {}, "by_confidence_band": {}, "by_source": {},
+        },
+    }
+    (tmp_path / "docs" / "batch-measurement.json").write_text(json.dumps(summary))
+
+    out = run(["report"], capsys)
+    assert "217" in out and "900" in out and "683" in out
+    assert "|" not in out
+    assert "**" not in out
+    assert "##" not in out
+
+
 def test_policy_shows_the_file_it_loaded_from(capsys) -> None:
     """A reader should be able to check a claim against the running system
     without opening config/policy.yaml and parsing it by eye."""

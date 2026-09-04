@@ -20,6 +20,7 @@ the same thing, and none of them should need the schema.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 import textwrap
@@ -331,11 +332,35 @@ def show_calibration(store: Store) -> int:
 
 
 def show_report() -> int:
-    report = ROOT / "docs" / "batch-measurement.md"
-    if not report.exists():
+    """The batch, glanced at rather than read.
+
+    The full argument for each number lives in docs/batch-measurement.md — a
+    document meant to be opened in something that renders markdown. Printing
+    it raw to a terminal meant every pipe character and every `**bold**`
+    showed up literally; this reads the same run's numbers from the summary
+    `scripts/run_batch.py` saves beside it and renders them for a screen
+    instead, with the full doc named at the bottom for whoever wants the case
+    behind a number rather than just the number.
+    """
+    import dataclasses
+
+    from unhalted.measure.report import Totals, render_terminal
+
+    summary = ROOT / "docs" / "batch-measurement.json"
+    if not summary.exists():
         print("no batch measurement yet. Run: uv run python scripts/run_batch.py")
         return 1
-    print(report.read_text())
+
+    data = json.loads(summary.read_text())
+    fields = {f.name for f in dataclasses.fields(Totals)}
+    agent = Totals(**{k: v for k, v in data["agent"].items() if k in fields})
+    base = Totals(**{k: v for k, v in data["base"].items() if k in fields})
+
+    print(render_terminal(
+        agent, base,
+        cases_count=data["cases_count"], holdout=data["holdout"],
+        total_paise=data["total_paise"], generated_at=data["generated_at"],
+    ))
     return 0
 
 

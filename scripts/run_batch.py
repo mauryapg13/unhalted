@@ -10,16 +10,41 @@ the point being demonstrated rather than a shortcut.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 import tempfile
+from datetime import UTC, datetime
 
 from unhalted.measure.generate import generate
-from unhalted.measure.report import render, run_batch
+from unhalted.measure.report import render, render_terminal, run_batch
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent
 REPORT = ROOT / "docs" / "batch-measurement.md"
+#: The numbers behind the doc, so `unhalted report` can render a clean terminal
+#: summary without re-running 300 cases just to print five lines. The doc
+#: stays the source a reader opens for the argument behind each number.
+SUMMARY = ROOT / "docs" / "batch-measurement.json"
+
+_SCALAR_FIELDS = (
+    "cases", "attempts", "attempts_in_restricted_window", "futile_attempts",
+    "messages", "intervention_paise", "held_for_human", "closed_uneconomic",
+)
+_COUNTER_FIELDS = ("by_class", "by_rung", "by_confidence_band", "by_source")
+
+
+def _plain(totals) -> dict:
+    """`Totals` as plain JSON, without `dataclasses.asdict`.
+
+    `asdict` rebuilds a dict field as `type(obj)(pairs)`, and `Counter`'s
+    constructor treats an iterable of pairs as elements to *count* rather than
+    as `(key, value)` pairs — so every Counter field would silently come back
+    counting its own tuples instead of holding the original counts.
+    """
+    out = {name: getattr(totals, name) for name in _SCALAR_FIELDS}
+    out.update({name: dict(getattr(totals, name)) for name in _COUNTER_FIELDS})
+    return out
 
 
 def main() -> int:
@@ -39,22 +64,27 @@ def main() -> int:
         finally:
             store.close()
 
+    holdout = sum(1 for c in cases if c.holdout)
+    total_paise = sum(c.signal.amount_paise for c in cases)
+    generated_at = f"{datetime.now(tz=UTC):%Y-%m-%d %H:%M UTC}"
+
     REPORT.parent.mkdir(exist_ok=True)
     REPORT.write_text(render(cases, agent, base))
+    SUMMARY.write_text(json.dumps({
+        "generated_at": generated_at,
+        "cases_count": len(cases),
+        "holdout": holdout,
+        "total_paise": total_paise,
+        "agent": _plain(agent),
+        "base": _plain(base),
+    }, indent=2))
 
-    print(f"\n  {'':<38}{'agent':>8}{'baseline':>10}")
-    for label, a, b in (
-        ("debit attempts scheduled", agent.attempts, base.attempts),
-        ("attempts a retry could not fix", agent.futile_attempts, base.futile_attempts),
-        ("attempts in NPCI restricted bands", agent.attempts_in_restricted_window,
-         base.attempts_in_restricted_window),
-        ("cases held for a human", agent.held_for_human, 0),
-        ("cases closed as uneconomic", agent.closed_uneconomic, 0),
-    ):
-        print(f"  {label:<38}{a:>8}{b:>10}")
-
-    print(f"\n  confidence bands: {dict(agent.by_confidence_band)}")
-    print(f"  report written to {REPORT.relative_to(ROOT)}")
+    print()
+    print(render_terminal(
+        agent, base, cases_count=len(cases), holdout=holdout,
+        total_paise=total_paise, generated_at=generated_at,
+    ))
+    print(f"\n  ({REPORT.relative_to(ROOT)} and {SUMMARY.relative_to(ROOT)} written)")
     return 0
 
 
