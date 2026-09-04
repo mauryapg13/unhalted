@@ -598,3 +598,33 @@ nothing to reply to instead of blocking on input for a message that was never se
 step that gets fixed to reflect reality does not automatically make the step after it honest too —
 each one has to be checked against what actually happened, not against what the step before it used
 to unconditionally produce.
+
+---
+
+### The scheduler's live view stamped a rehearsed execution with the wrong clock
+**Date:** 2026-09-05
+
+**What happened:** a live demo run injected `authentication_failed` at real time ~00:03 IST, then
+ran `unhalted --at "2026-09-05 08:00" run-due` to skip past contact hours. That command genuinely
+executed the nudge at the rehearsed 08:00, correctly inside contact hours. But `scripts/schedule.py`
+— a separate, already-running process watching the same database in real time — showed the
+execution at `00:05:30`, real wall-clock time, which is outside contact hours. Read at face value,
+the live view showed the system messaging a customer at midnight, the exact violation the contact-
+hours rule exists to prevent, on a run that never actually did that.
+
+**Why:** `audit_lines()` backfills any execution/human-review/recovery record it has not shown yet,
+which is right — a pass run by another worker, the HTTP endpoint, or a `--at` rehearsal should all
+be visible from here. But it stamped every backfilled line with `now` — the current poll tick — not
+`record.at`, the time the decision actually happened. The two are the same instant for an ordinary
+live pass, so this went unnoticed until a rehearsed `--at` execution and a real-time viewer's poll
+diverged by hours.
+
+**What changed:** the three `event(...)` calls inside `audit_lines()` now pass `now=record.at`
+instead of `now=now`. Added `test_a_backfilled_execution_shows_when_it_really_happened`, which
+records an execution at one instant, polls from a different one well outside contact hours, and
+asserts the line shows the record's own time, not the poll's.
+
+**The lesson:** a viewer backfilling history from a shared store cannot assume the instant it
+learned about something is the instant that thing happened — the same distinction `--at` itself
+exists to make loudly for a single run, quietly lost the moment a second process started reading
+that run's audit trail instead of producing it.

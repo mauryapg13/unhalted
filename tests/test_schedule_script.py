@@ -90,6 +90,29 @@ def test_a_recovery_is_reported(schedule, held_case) -> None:
     assert "paid via recovery link" in lines[0]
 
 
+def test_a_backfilled_execution_shows_when_it_really_happened(schedule, held_case) -> None:
+    """A worker running under `--at`, or a scheduler started after the fact,
+    means the record's own time and the poll tick that first noticed it can
+    genuinely differ. Stamping the line with the poll tick instead of
+    `record.at` printed a rehearsed 08:00 execution as if it happened at
+    whatever second this viewer happened to be watching — which for anything
+    outside contact hours reads as a violation that never occurred.
+    """
+    store, case = held_case
+    real_time = datetime(2026, 9, 3, 23, 0, tzinfo=IST)  # outside contact hours
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=NOW, decision_type="execution",
+            action="nudge: done", inputs={}, rules_fired=["RUNNER"],
+            outcome="message delivered",
+        )
+    )
+    lines = schedule.audit_lines(store, set(), now=real_time)
+    assert len(lines) == 1
+    assert NOW.strftime("%H:%M:%S") in lines[0]
+    assert real_time.strftime("%H:%M:%S") not in lines[0]
+
+
 def test_an_escalation_reads_as_escalated_not_cancelled(schedule) -> None:
     action = {"id": 1, "case_id": "CASE-ABC", "kind": "retry", "cancel_reason": "HELD_FOR_HUMAN"}
     line = schedule.cancellation_event(action, now=NOW)
