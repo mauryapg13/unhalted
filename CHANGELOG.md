@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/schedule.py`'s live view stamped a backfilled execution with the poll tick that noticed
+  it, not `record.at` — the time it actually happened. A rehearsed `--at 08:00` execution, watched
+  by an already-running scheduler polling real time, displayed at whatever second the viewer
+  happened to poll. Outside contact hours, that reads as the exact violation the contact-hours rule
+  exists to prevent, on a run that never did that. Recorded in `BREAKAGE.md`.
+
 ### Added
 - The README documented the ladder, the batch, and the reply corpus, but not the two things that
   actually close a case or change its own rules: the payment-recovery loop (`payment_link.paid` →

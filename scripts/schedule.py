@@ -121,6 +121,14 @@ def audit_lines(
     then did about it. Recovery — a customer actually paying through the
     recovery link — is the same shape of gap: the case closes in the store,
     and nothing here said so until this branch existed.
+
+    Each line is stamped with `record.at` — when the decision actually
+    happened — not the poll tick that first noticed it. A worker executing
+    under `--at` (rehearsal) or a backfill on a freshly started scheduler
+    both make those two times genuinely different; stamping with `now`
+    printed a rehearsed 08:00 execution as if it happened at whatever second
+    this viewer polled, which for anything outside contact hours reads as a
+    violation that never occurred.
     """
     lines: list[str] = []
     for case in store.all_cases():
@@ -133,10 +141,12 @@ def audit_lines(
             seen.add(marker)
             if record.decision_type == "human-review":
                 who = record.human_actor or "a reviewer"
-                lines.append(event("REVIEWED", case.id, f"{record.action}, by {who}", now=now))
+                lines.append(
+                    event("REVIEWED", case.id, f"{record.action}, by {who}", now=record.at)
+                )
                 continue
             if record.decision_type == "recovery":
-                lines.append(event("RECOVERED", case.id, record.action, now=now))
+                lines.append(event("RECOVERED", case.id, record.action, now=record.at))
                 continue
             state = record.action.split(":")[-1].strip().upper()
             kind = {
@@ -144,7 +154,7 @@ def audit_lines(
                 "NO-ADAPTER": "NO ADAPTER",
                 "PENDING": "DEFERRED",
             }.get(state, state)
-            lines.append(event(kind, case.id, record.outcome or record.action, now=now))
+            lines.append(event(kind, case.id, record.outcome or record.action, now=record.at))
     return lines
 
 
