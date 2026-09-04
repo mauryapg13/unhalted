@@ -38,6 +38,7 @@ class PaymentLink:
 
 def create_payment_link(
     *, amount_paise: int, description: str, contact: str | None = None,
+    reference_id: str | None = None,
 ) -> PaymentLink | None:
     """A real, payable link for this amount, or `None`.
 
@@ -46,6 +47,13 @@ def create_payment_link(
     worth blocking over a link failing to generate; it goes out without one
     and says so, the same way a briefing that never arrives says so rather
     than the reviewer waiting on it forever.
+
+    `reference_id` is the case id, tagged on the link Razorpay's own way
+    (verified against `api/payments/payment-links/create-standard.md` — a
+    documented field, up to 40 characters, unique per link). Without it, a
+    `payment_link.paid` webhook arrives with no way to say which case it
+    resolves; with it, `ingest/webhooks.py` reads it straight back off the
+    payload and closes the loop.
     """
     key_id = config.razorpay_key_id()
     key_secret = config.razorpay_key_secret()
@@ -64,6 +72,8 @@ def create_payment_link(
     }
     if contact:
         body["customer"] = {"contact": contact}
+    if reference_id:
+        body["reference_id"] = reference_id[:40]
 
     try:
         r = httpx.post(

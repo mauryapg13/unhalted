@@ -6,6 +6,7 @@
     unhalted queue                  what is waiting on a person
     unhalted report                 the batch numbers
     unhalted breakeven              what the money argument rests on
+    unhalted calibration            whether confidence predicts outcome, on real cases only
     unhalted run-due                execute the actions that have come due
     unhalted capabilities           what this account can actually do
 
@@ -306,6 +307,25 @@ def show_breakeven(store: Store) -> int:
     return 0
 
 
+def show_calibration(store: Store) -> int:
+    """Whether confidence predicts outcome, on real cases only.
+
+    Issue #7 could not be settled on generated data — the correct class is
+    whatever the generator picked, so "did the confident ones do better" has
+    no honest answer there. `mark_recovered` gives some cases a real,
+    non-generated outcome for the first time; this is what that makes
+    measurable, however small the sample is today.
+    """
+    from unhalted.measure.calibration import measure, render
+
+    cases = [
+        (store.latest_diagnosis(case.id), case.state)
+        for case in store.all_cases()
+    ]
+    print(render(measure(cases)))
+    return 0
+
+
 # -- unhalted report ----------------------------------------------------------
 
 
@@ -414,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
 
     command("run-due", help="execute the actions that have come due")
     command("breakeven", help="what the money argument rests on")
+    command("calibration", help="whether confidence predicts outcome, on real cases only")
     command("report", help="the batch measurement")
     command("capabilities", help="what this deployment can do")
 
@@ -451,6 +472,13 @@ def dispatch(args) -> int:
         store = open_store(args.db)
         try:
             return show_breakeven(store)
+        finally:
+            store.close()
+
+    if args.command == "calibration":
+        store = open_store(args.db)
+        try:
+            return show_calibration(store)
         finally:
             store.close()
 

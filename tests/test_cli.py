@@ -133,6 +133,28 @@ def test_breakeven_reads_real_stored_cases(db, capsys) -> None:
     assert "NOT REPORTED" in out
 
 
+def test_calibration_reads_real_stored_cases(db, capsys) -> None:
+    """The db fixture's case is still open, so this is the honest zero."""
+    path, _ = db
+    out = run(["--db", path, "calibration"], capsys)
+    assert "CALIBRATION" in out
+    assert "nothing to" in out.lower() or "no case" in out.lower()
+
+
+def test_calibration_reports_a_real_recovery(tmp_path, capsys) -> None:
+    from unhalted.agent import mark_recovered
+
+    path = str(tmp_path / "recovered.db")
+    store = Store(path)
+    case = handle_failure(store, signal(reason="insufficient_funds"), now=NOW)
+    mark_recovered(store, case.id, payment_id="pay_X", amount_paise=49900, now=NOW)
+    store.close()
+
+    out = run(["--db", path, "calibration"], capsys)
+    assert "auto-execute" in out
+    assert "too few to conclude" in out
+
+
 def test_breakeven_says_so_when_there_is_nothing_to_compute(tmp_path, capsys) -> None:
     from unhalted.store import Store
 

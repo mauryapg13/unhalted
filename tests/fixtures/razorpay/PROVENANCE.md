@@ -29,6 +29,11 @@ a real decline obtainable without live credentials and a customer with an empty 
 `payment_failed_{netbanking,card,wallets,upi}.json`, extracted programmatically from
 `razorpay/markdown-docs` → `webhooks/payments.md`, section "Payment Failed", on 2026-08-31.
 
+`payment_link_paid.json`, extracted the same way from `webhooks/payment-links.md`, section
+"Payment Link Paid" (Standard), on 2026-09-04. Used to test the other side of the loop
+`shell/paylink.py` opens: `reference_id` carries the case id back, and closing on it needs a
+payload with a real one to close against.
+
 Their field names, shapes and values are authoritative. The payments they describe never existed.
 They cover methods and error reasons this account cannot produce.
 

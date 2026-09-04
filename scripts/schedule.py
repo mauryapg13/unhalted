@@ -56,7 +56,35 @@ STYLE = {
     "FAILED": tui.RED,
     "RECLAIMED": tui.AMBER,
     "REVIEWED": tui.VIOLET,
+    "RECOVERED": tui.GREEN,
+    "ESCALATED": tui.RED,
 }
+
+#: Cancellation reasons that mean "this case now needs a person" — every stop
+#: rule and diagnosis path whose terminal state is CaseState.HELD_FOR_HUMAN.
+#: Rendered as a distinct event so `CANCELLED ... HELD_FOR_HUMAN` doesn't read
+#: as a routine cancellation on a log a person is trying to follow live.
+ESCALATION_REASONS = frozenset({"HELD_FOR_HUMAN", "DISPUTE", "DISTRESS", "CHARGEBACK", "REG_HOLD"})
+
+
+def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
+    """One cancelled action, or `None` for the one reason that already gets
+    its own distinct event elsewhere (RECOVERED, via `audit_lines`) and would
+    otherwise print twice for the same real thing that happened.
+
+    An escalation reason renders as ESCALATED, not CANCELLED — mechanically
+    it is a cancellation, `apply_stop` and the low-confidence-diagnosis path
+    both reach it through `store.cancel_pending`, but to a person reading the
+    log live "the retry got cancelled" and "this case now needs you" are not
+    the same sentence, and only one of the two reasons to write.
+    """
+    reason = action["cancel_reason"] or ""
+    if reason == "RECOVERED":
+        return None
+    if reason in ESCALATION_REASONS:
+        return event("ESCALATED", action["case_id"],
+                     f"{action['kind']}  held for a human — {reason}", now=now)
+    return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=now)
 
 
 def event(kind: str, case_id: str, detail: str, *, now: datetime) -> str:
@@ -90,12 +118,14 @@ def audit_lines(
     Without the human-review half of this, approving, rejecting or
     reclassifying a held case was invisible from here: the log stopped at the
     cancellation that sent a case to a person and never said what the person
-    then did about it.
+    then did about it. Recovery — a customer actually paying through the
+    recovery link — is the same shape of gap: the case closes in the store,
+    and nothing here said so until this branch existed.
     """
     lines: list[str] = []
     for case in store.all_cases():
         for record in store.timeline(case.id):
-            if record.decision_type not in ("execution", "human-review"):
+            if record.decision_type not in ("execution", "human-review", "recovery"):
                 continue
             marker = (record.case_id, record.at.isoformat(), record.action)
             if marker in seen:
@@ -104,6 +134,9 @@ def audit_lines(
             if record.decision_type == "human-review":
                 who = record.human_actor or "a reviewer"
                 lines.append(event("REVIEWED", case.id, f"{record.action}, by {who}", now=now))
+                continue
+            if record.decision_type == "recovery":
+                lines.append(event("RECOVERED", case.id, record.action, now=now))
                 continue
             state = record.action.split(":")[-1].strip().upper()
             kind = {
@@ -177,9 +210,9 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
-                lines.append(event("CANCELLED", action["case_id"],
-                                   f"{action['kind']}  {action['cancel_reason'] or ''}",
-                                   now=now))
+                line = cancellation_event(action, now=now)
+                if line is not None:
+                    lines.append(line)
 
             for action in store.pending_actions():
                 key = (int(action["id"]), "scheduled")

@@ -376,6 +376,34 @@ tool that silently strips the documentation explaining why each number is what i
 
 ---
 
+### C9f — A customer paying a different way is a real, observable event
+A recovery link that nobody can tell got paid is a nudge, not a recovery.
+
+**Done when:** `create_payment_link` tags the link with the case id (`reference_id`, a documented
+Payment Links field); `ingest/webhooks.py` handles `payment_link.paid`, reads that reference back
+off the payload, and closes the case — `CaseState.RECOVERED` (defined on the model from the start,
+never previously set anywhere in the codebase), every pending retry and nudge cancelled, the real
+payment id and amount on the audit record. The scheduler terminal shows it as its own event,
+distinct from a routine cancellation.
+
+**Why it exists.** Before this, a customer who paid through the recovery link and a customer who
+never saw it looked identical to the system: the retry stayed scheduled either way, and would have
+fired against money that had already arrived the moment a real debit adapter exists (see C9d's own
+`NO ADAPTER` limitation). This is also the first real, non-modelled signal this project can ever
+accumulate toward "how much did this recover" — every other treatment of that question in this
+repository is explicitly a ceiling or a range with its assumption on the page, because there was no
+real outcome data to measure. A recovered case is one.
+
+**Verified against Razorpay's own documentation**, not assumed: `reference_id` in
+`api/payments/payment-links/create-standard.md`, the `payment_link.paid` payload shape in
+`webhooks/payment-links.md`. The test fixture is their own published example, not hand-written.
+
+**Not included:** `payment_link.partially_paid`. Reconciling a partial payment against the
+mandate's remaining balance is a real question this checkpoint does not answer, and pretending a
+partial payment closes a case the way a full one does would misstate what happened.
+
+---
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 

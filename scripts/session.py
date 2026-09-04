@@ -134,6 +134,7 @@ def main() -> int:
     rule("3. The agent contacts the customer")
     link = paylink.create_payment_link(
         amount_paise=signal.amount_paise, description=f"payment retry for {case.id}",
+        reference_id=case.id,
     )
     if link:
         print(f"  {DIM}pay link generated: {link.url}{RESET}")
