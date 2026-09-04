@@ -193,6 +193,17 @@ def main() -> int:
     report = run_due(store, now=now)
     print(f"  {report.render()}")
 
+    # `contacted` is about the diagnosis; this is about what actually
+    # happened this pass. A contact rung deferred by contact hours (the same
+    # 08:00-19:00 window this system enforces everywhere else) sent nothing
+    # at all — checked directly against the audit trail's own record of the
+    # execution, not assumed from the rung alone.
+    execution = next(
+        (r for r in reversed(store.timeline(case.id)) if r.decision_type == "execution"),
+        None,
+    )
+    delivered = contacted and execution is not None and execution.action.endswith(": done")
+
     if not contacted:
         rule("4. Nobody was contacted, so there is nothing to reply to")
         print(
@@ -205,6 +216,14 @@ def main() -> int:
             f"  {DIM}see the reply loop with `uv run python scripts/inject.py "
             f"authentication_failed` instead — the real captured payments only ever produce "
             f"this diagnosis (issue #8).{RESET}"
+        )
+    elif not delivered:
+        rule("4. Nothing has reached the customer yet")
+        detail = execution.outcome if execution else "nothing executed this pass"
+        print(f"  {DIM}{detail} — there is nothing yet for a reply loop to answer.{RESET}")
+        print(
+            f"  {DIM}rerun with `--at \"YYYY-MM-DD 08:00\"` (inside 08:00-19:00 IST) to see it "
+            f"actually deliver and reach the reply loop.{RESET}"
         )
     else:
         rule("4. Your turn — reply as the customer")

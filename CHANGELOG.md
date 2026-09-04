@@ -20,9 +20,15 @@
 - `scripts/session.py`'s reply prompt gave no indication of what you were replying to — the actual
   message printed two screens up, in step 3, under a generic "whatever the ladder scheduled
   actually runs" title that reads as an internal log line, not a text message arriving on a phone.
-  Step 3 now titles itself "The message reaches the customer" when the diagnosis actually reaches a
-  contact rung, and step 4 opens by pointing back at the boxed text above it before asking for a
-  reply — the same content, printed once, just framed as what it is.
+  Step 3 now titles itself "The message reaches the customer" when the diagnosis reaches a contact
+  rung, and step 4 opens by pointing back at the boxed text above it before asking for a reply.
+
+  The first version of this fix checked only whether the diagnosis's rung *can* contact someone,
+  not whether it actually did *this pass* — a nudge deferred by contact hours (08:00-19:00 IST,
+  the same window this system enforces everywhere else) sends nothing at all, and step 4 still
+  claimed a message had "just arrived." Caught live, outside the window: now checked against the
+  audit trail's own execution record, and a deferred nudge gets its own honest step 4 explaining
+  nothing has reached the customer yet, with the `--at` rerun that would actually deliver it.
 - `scripts/session.py` asked for a reply as the customer even on a silent retry — a diagnosis that
   by design never contacts anyone, so there was never a message to be replying to. It now checks
   whether the entry rung actually contacts the customer before offering the prompt, and explains
