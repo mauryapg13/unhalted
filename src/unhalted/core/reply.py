@@ -28,6 +28,7 @@ import logging
 import httpx
 
 from unhalted import config
+from unhalted.core.evidence import quotes_the_source
 from unhalted.models import DetectedIntent, Intent, ParsedReply, Sentiment
 
 log = logging.getLogger("unhalted.core.reply")
@@ -114,14 +115,11 @@ class ModelCall:
 def _quotes_the_reply(evidence: str, reply: str) -> bool:
     """Does this span actually appear in what the customer wrote?
 
-    Whitespace and case are normalised because models re-space and re-capitalise
-    a quote without changing which words it contains. Anything beyond that is a
-    paraphrase or an invention, and neither is evidence.
+    Thin wrapper: the check itself is shared with the policy-change
+    proposer, which asks the identical question of a different kind of
+    source text. See `unhalted.core.evidence.quotes_the_source`.
     """
-    if not evidence.strip():
-        return False
-    squash = " ".join(evidence.split()).casefold()
-    return squash in " ".join(reply.split()).casefold()
+    return quotes_the_source(evidence, reply)
 
 
 def _call_model(reply: str, context: str) -> ModelCall:
