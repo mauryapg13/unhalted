@@ -1,6 +1,6 @@
 # Reply parser evaluation
 
-Generated 2026-09-02 11:26 UTC · prompt `da4005e4eb27` ·
+Generated 2026-09-04 08:55 UTC · prompt `da4005e4eb27` ·
 model `z-ai/glm-5.3-flash` · 68 replies
 
 ## Provenance of the corpus
@@ -30,29 +30,40 @@ real problem, so the accuracy below is measured **only over replies that parsed*
 | | |
 |---|---|
 | Replies | 68 |
-| Parsed successfully | 67 (99%) |
-| Failed after 3 attempts | 1 |
-| Needed at least one retry | 4 |
-| Model calls made | 74 for 68 replies |
+| Parsed successfully | 68 (100%) |
+| Failed after 3 attempts | 0 |
+| Needed at least one retry | 0 |
+| Model calls made | 68 for 68 replies |
+| Cost per parse | $0.000066 (mean over 68 priced replies) |
 
 A failure is operationally safe — the reply is preserved and queued for a human, and nothing fires
 on a guess. It is still a reply the agent did not handle, and at this rate it is the largest single
 weakness in the parser.
 
+## Latency
+
+Measured on 68 live calls this run (the rest were served from `.reply-eval-cache.json`): **0.7s to 11.2s**, median 1.0s.
+
+This model reasons before it answers, and the reasoning is billed to the same completion budget
+as the visible output — measured directly, a trivial prompt spent its entire budget on reasoning
+and returned no content at all. `reasoning: {"effort": "low"}` is set on every call for exactly
+this reason: it cut reasoning tokens from the hundreds-to-low-thousands down to single digits on
+the hardest multi-intent cases in this corpus, with no accuracy loss measured against them.
+
 ## Precision and recall by intent
 
-Over the 67 replies that parsed.
+Over the 68 replies that parsed.
 
 | Intent | TP | FP | FN | Precision | Recall |
 |---|---:|---:|---:|---:|---:|
-| `cancellation-request` | 5 | 4 | 0 | 0.56 | 1.00 |
+| `cancellation-request` | 5 | 3 | 0 | 0.62 | 1.00 |
 | `channel-preference` | 5 | 0 | 0 | 1.00 | 1.00 |
-| `dispute` | 9 | 4 | 0 | 0.69 | 1.00 |
+| `dispute` | 9 | 2 | 0 | 0.82 | 1.00 |
 | `distress` | 7 | 1 | 0 | 0.88 | 1.00 |
-| `opt-out` | 12 | 0 | 0 | 1.00 | 1.00 |
-| `promise-to-pay` | 17 | 3 | 0 | 0.85 | 1.00 |
+| `opt-out` | 12 | 1 | 0 | 0.92 | 1.00 |
+| `promise-to-pay` | 18 | 1 | 0 | 0.95 | 1.00 |
 | `service-complaint` | 8 | 0 | 0 | 1.00 | 1.00 |
-| `set-off-request` | 4 | 2 | 0 | 0.67 | 1.00 |
+| `set-off-request` | 4 | 1 | 0 | 0.80 | 1.00 |
 | `unknown` | 5 | 0 | 1 | 1.00 | 0.83 |
 
 **Recall** answers "did we miss any of these?" **Precision** answers "when we said yes, were we
@@ -72,9 +83,7 @@ differently.
 
 ## Failures
 
-**Parse failures:** 1
-
-- pp-05: model returned empty content
+**Parse failures:** none.
 
 **Forbidden intents detected:** none.
 

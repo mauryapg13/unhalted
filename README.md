@@ -199,16 +199,23 @@ nothing needed inferring.
 
 | | |
 |---|---|
-| Parsed successfully | 67 of 68 |
+| Parsed successfully | 68 of 68 |
 | `opt-out` recall | 1.00 |
 | `distress` recall | 1.00 |
 | `promise-to-pay` recall | 1.00 |
-| `cancellation-request` precision | 0.56 |
-| Cost per parse | about ₹0.01 |
+| `cancellation-request` precision | 0.62 |
+| Cost per parse | $0.00007 (OpenRouter `usage.cost`) |
+| Latency | median 1.0s, up to ~11s on a slow call |
 
 Recall is 1.00 on every intent where missing one causes harm. Precision is where it is weak, and
 the shell is what makes that survivable: cancellation needs 0.85 confidence before anything acts,
 and no reply in the corpus cleared it.
+
+Every call runs at `reasoning: {"effort": "low"}` — this model reasons before answering, billed to
+the same completion budget as the visible output, and a trivial prompt at default effort spent its
+entire budget on invisible reasoning tokens with nothing left to answer with. Lowering it cut
+reasoning tokens to single digits and latency 3–9x on the hardest cases in this corpus, with no
+accuracy loss measured against them. See [`docs/reply-evaluation.md`](docs/reply-evaluation.md).
 
 **Not reported as measured:** rupees recovered. See [Measurement](#measurement).
 

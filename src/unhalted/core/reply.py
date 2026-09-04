@@ -136,6 +136,15 @@ def _call_model(reply: str, context: str) -> ModelCall:
         ],
         "max_tokens": MAX_TOKENS,
         "temperature": 0,
+        # This model reasons before it answers, and the reasoning is what
+        # actually varies call to call — 887 to 1608 tokens measured across
+        # otherwise-identical requests, which is the real source of the
+        # multi-second-to-30-second latency swings, not network variance
+        # (checked directly: the completion is billed almost entirely to
+        # `reasoning_tokens`). "low" cut that to single digits with no
+        # regression on any of the hardest multi-intent cases in
+        # tests/fixtures/replies/labelled.json — see docs/reply-evaluation.md.
+        "reasoning": {"effort": "low"},
     }
 
     last = "unknown"
