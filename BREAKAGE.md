@@ -802,3 +802,42 @@ date-change call. That is a different feature, and calling it a small one would 
 **The lesson worth keeping:** the idea was right and the platform said no, which is a different
 answer from "we ran out of time" and is worth recording as such. A reader who has the same idea
 next month should find the three quotes above rather than rediscovering them.
+
+---
+
+### A merchant's own broken integration was being retried like a bank decline
+**Date:** 2026-09-05
+
+**What happened:** asked whether every `error_source` Razorpay documents is actually handled. Run
+across all of them against `payment_failed`, seven of eight produced `recoverable-technical` and a
+silent retry — including `error_source: business`, which is Razorpay's label for the merchant's own
+configuration being wrong.
+
+**Why:** the taxonomy is keyed on `(method, reason, source, step)` and walks from most specific to
+least, so a source with no rule of its own falls through to the reason's wildcard. `payment_failed`
+has a permissive wildcard — a bank decline with no stated cause is genuinely worth one retry — and
+`business` inherited it. The mismatch is that for these, the *source* is the whole answer and the
+reason is incidental: Razorpay's failure-analysis guide says plainly that "Business failures require
+corrective action rather than retries. These issues stem from merchant-side configuration or account
+settings — simply retrying the same request won't resolve them."
+
+The project had already reached the right conclusion twice and written it down — `invalid_amount`
+and `input_validation_failed` are both mapped to UNKNOWN with the rationale "a merchant-side
+integration fault, deliberately held rather than classified — no customer should be contacted about
+it." It just did it reason by reason, which cannot catch a merchant fault arriving under a generic
+reason, and would need a new row for every reason Razorpay ever emits.
+
+**What changed:** `MERCHANT_SOURCES` is checked before the reason is, because for these the source
+decides. Any failure attributed to the business is held for a person with a stated rationale, and no
+customer is contacted about a problem they cannot fix. The two remaining documented business
+reasons — `international_transaction_not_allowed` and `invalid_currency` — now have explicit rules
+too: both already landed on UNKNOWN through the unmatched fallback, so nothing was ever retried on
+them, but they read as *gaps in the table* rather than as decisions, and
+`scripts/propose_taxonomy_rule.py` clusters on exactly that phrase — so both would have been filed
+forever as rules somebody still needed to write. The new rationale deliberately avoids "no taxonomy
+entry" for the same reason.
+
+**The lesson:** a lookup table keyed on several fields quietly assumes they are all the same *kind*
+of fact. Three of these four narrow the answer; one of them replaces it. Nothing about the table's
+shape said which was which, and the wildcard that made the common case convenient is exactly what
+let the uncommon one through.

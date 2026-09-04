@@ -26,6 +26,18 @@
 - `cases.nudges_suspended_until`, so a promise-to-pay actually suppresses the next nudge.
 
 ### Fixed
+- **A merchant's own broken integration was retried like a bank decline.** Checked across every
+  `error_source` Razorpay documents: seven of eight produced a silent retry on `payment_failed`,
+  including `business` — their label for the merchant's own configuration being wrong. Their
+  failure-analysis guide is explicit that "Business failures require corrective action rather than
+  retries... simply retrying the same request won't resolve them." The taxonomy walks most-specific
+  to least, so a source with no rule of its own inherited the reason's permissive wildcard; for
+  these the source is the whole answer, so `MERCHANT_SOURCES` is now checked before the reason and
+  the case is held for a person with no customer contacted about a problem they cannot fix. The two
+  remaining documented business reasons (`international_transaction_not_allowed`,
+  `invalid_currency`) got explicit rules: both already held safely via the unmatched fallback, but
+  read as gaps in the table, so `propose_taxonomy_rule.py` would have kept filing them as rules
+  somebody still had to write. Recorded in `BREAKAGE.md`.
 - **The retry counter had two readers and no writer.** `case.retry_count` was set to 0 on insert and
   incremented nowhere, so `backoff_for` always returned tier one — the `2h`/`6h` and `1d`/`2d` tiers
   were real, tested and unreachable — and `retry_count >= RETRY_CAP` could never be true, leaving

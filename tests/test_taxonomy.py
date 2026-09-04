@@ -163,3 +163,56 @@ def test_only_the_fraud_decline_is_deliberately_held() -> None:
     m = lookup("card", "payment_risk_check_failed", None, None)
     assert "fraudulent" in m.rule.rationale
     assert m.key, "a held reason must still record that it matched a rule"
+
+
+# -- the source can be the whole answer ---------------------------------------
+
+
+def test_a_merchant_fault_is_held_however_permissive_the_reason_is() -> None:
+    """Razorpay's failure-analysis guide, on business failures: "Business
+    failures require corrective action rather than retries. These issues stem
+    from merchant-side configuration or account settings — simply retrying the
+    same request won't resolve them."
+
+    `payment_failed` carries a permissive rule because a bank decline is worth
+    one retry. The same reason arriving with `error_source: business` is a
+    broken integration that will fail identically every time, and matching it
+    against the reason alone scheduled exactly the retry their guidance says
+    cannot work.
+    """
+    bank = lookup("card", "payment_failed", "bank", None)
+    business = lookup("card", "payment_failed", "business", None)
+
+    assert bank.rule.klass is DiagnosisClass.RECOVERABLE_TECHNICAL
+    assert business.rule.klass is DiagnosisClass.UNKNOWN
+    assert business.confidence == 0.0, "held for a person, not acted on"
+    assert "retrying cannot resolve it" in business.rule.rationale
+
+
+def test_a_merchant_fault_does_not_read_as_a_gap_in_the_table() -> None:
+    """`scripts/propose_taxonomy_rule.py` clusters held cases on the phrase
+    "no taxonomy entry" to find reasons still needing a rule. A merchant fault
+    is a classification, not a gap, and must not be filed as work to do."""
+    business = lookup("card", "payment_failed", "business", None)
+    assert "no taxonomy entry" not in business.rule.rationale
+    assert business.key, "a held source must still record what it matched on"
+
+    novel = lookup("card", "something_nobody_has_seen", "gateway", None)
+    assert "no taxonomy entry" in novel.rule.rationale, "a real gap still reads as one"
+
+
+def test_every_business_failure_razorpay_documents_has_a_rule() -> None:
+    """The four their failure-analysis guide names. Two were already mapped;
+    the other two landed on UNKNOWN through the unmatched fallback, so nothing
+    was ever retried on them — but they read as gaps rather than decisions."""
+    for reason in (
+        "input_validation_failed",
+        "international_transaction_not_allowed",
+        "invalid_amount",
+        "invalid_currency",
+    ):
+        m = lookup("card", reason, None, None)
+        assert m.rule.klass is DiagnosisClass.UNKNOWN, reason
+        assert "no taxonomy entry" not in m.rule.rationale, (
+            f"{reason} is a documented merchant fault, not an unrecognised reason"
+        )
