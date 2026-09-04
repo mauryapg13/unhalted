@@ -7,11 +7,14 @@ prettier summary of it.
 
 from __future__ import annotations
 
+import importlib
+import pathlib
 from datetime import datetime
 
 import pytest
 
 from unhalted import cli
+from unhalted import policy as policy_mod
 from unhalted.agent import apply_stop, handle_failure
 from unhalted.models import FailureSignal
 from unhalted.shell.windows import IST
@@ -114,6 +117,29 @@ def test_capabilities_reports_what_is_absent_not_only_what_works(capsys) -> None
     out = run(["capabilities"], capsys)
     assert "UPI Autopay transport: absent" in out
     assert "taxonomy" in out.lower()
+
+
+def test_policy_shows_the_file_it_loaded_from(capsys) -> None:
+    """A reader should be able to check a claim against the running system
+    without opening config/policy.yaml and parsing it by eye."""
+    out = run(["policy"], capsys)
+    assert "config/policy.yaml" in out
+    assert "NPCI execution bands" in out
+    assert "10:00-13:00" in out
+    assert "17:00-21:30" in out
+
+
+def test_policy_reflects_an_override_not_only_the_shipped_file(capsys, tmp_path, monkeypatch) -> None:
+    override = tmp_path / "policy.yaml"
+    override.write_text(pathlib.Path("config/policy.yaml").read_text().replace("cap: 3", "cap: 1"))
+    monkeypatch.setenv("UNHALTED_POLICY", str(override))
+    importlib.reload(policy_mod)
+    try:
+        out = run(["policy"], capsys)
+        assert "cap  1 per billing cycle" in out
+    finally:
+        monkeypatch.delenv("UNHALTED_POLICY", raising=False)
+        importlib.reload(policy_mod)
 
 
 def test_verbose_shows_inputs_that_the_default_hides(db, capsys) -> None:

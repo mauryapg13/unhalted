@@ -192,6 +192,7 @@ uv run unhalted queue                 # what is waiting on a person
 uv run unhalted breakeven             # what the money argument rests on
 uv run unhalted report                # the batch measurement
 uv run unhalted capabilities          # what this deployment can actually do
+uv run unhalted policy                # the currently loaded policy — every threshold enforced
 ```
 
 `compare` is the one to run first. A single case shows no contrast on its own — the agent declines

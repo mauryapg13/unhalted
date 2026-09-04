@@ -8,6 +8,7 @@
     unhalted breakeven              what the money argument rests on
     unhalted run-due                execute the actions that have come due
     unhalted capabilities           what this account can actually do
+    unhalted policy                 the currently loaded policy — every threshold enforced
 
 The audit trail is the only account of what happened that anyone should trust,
 and until now reading it meant writing a query. That is the gap this closes:
@@ -348,6 +349,65 @@ def show_capabilities() -> int:
     return 0
 
 
+def _fmt_td(td) -> str:
+    seconds = int(td.total_seconds())
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}d"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 60}m"
+
+
+def show_policy() -> int:
+    """The policy actually in effect right now — not the file, the loaded,
+    validated values every enforcement path reads. A reader who wants to
+    verify a claim in the README, or check what a proposed change from
+    `scripts/propose_policy_change.py` would be changing, should not have to
+    open config/policy.yaml and parse it by eye.
+    """
+    from unhalted import policy as policy_mod
+
+    p = policy_mod.POLICY
+    print(f"\n{b('policy')}  {d(f'loaded from {config.policy_path()}')}")
+    print(f"  {d('version')}  {p.version}")
+
+    print(f"\n  {b('NPCI execution bands')}  {d(f'({p.npci_rule_version})')}")
+    for start, end in p.npci_restricted_bands:
+        print(f"    {start:%H:%M}-{end:%H:%M} IST  {d('restricted, UPI Autopay only')}")
+
+    print(f"\n  {b('contact hours')}")
+    print(f"    {p.contact_open:%H:%M}-{p.contact_close:%H:%M} IST")
+
+    print(f"\n  {b('retries')}")
+    print(f"    cap  {p.retry_cap} per billing cycle")
+    for klass, tiers in p.backoff_raw.items():
+        print(f"    {klass:<24} " + ", ".join(_fmt_td(t) for t in tiers))
+    print(f"    {'(no schedule of its own)':<24} {_fmt_td(p.default_backoff)}")
+
+    print(f"\n  {b('confidence thresholds')}")
+    print(f"    auto-execute             >= {p.confidence_auto_execute:.2f}")
+    print(f"    auto-execute-sampled-qa  >= {p.confidence_sampled_qa:.2f}")
+    print("    hold-for-human           below that")
+
+    print(f"\n  {b('reply policy')}  {d(f'({p.reply_rule_version})')}")
+    print(f"    acts-on-money  >= {p.reply_acts_on_money:.2f}")
+    print(f"    protective     >= {p.reply_protective:.2f}")
+    print(f"    cancellation   >= {p.reply_cancellation:.2f}")
+
+    print(f"\n  {b('ladder costs')}  {d(f'({p.ladder_rule_version})')}")
+    for slug, paise in p.ladder_rung_costs_paise.items():
+        print(f"    {slug:<24} Rs {paise / 100:.0f}")
+
+    print(f"\n  {b('mandate limits')}  {d(f'({p.limit_rule_version})')}")
+    print(f"    frictionless UPI            Rs {p.frictionless_upi_paise / 100:,.0f}")
+    print(f"    frictionless UPI (BFSI)     Rs {p.frictionless_upi_bfsi_paise / 100:,.0f}")
+    print(f"    UPI mandate max             Rs {p.upi_mandate_max_paise / 100:,.0f}")
+    print(f"    card recurring max          Rs {p.card_recurring_max_paise / 100:,.0f}")
+    print(f"    emandate max                Rs {p.emandate_max_paise / 100:,.0f}")
+    print()
+    return 0
+
+
 # -- entry point --------------------------------------------------------------
 
 
@@ -416,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     command("breakeven", help="what the money argument rests on")
     command("report", help="the batch measurement")
     command("capabilities", help="what this deployment can do")
+    command("policy", help="the currently loaded policy — every threshold this system enforces")
 
     args = parser.parse_args(argv)
 
@@ -458,6 +519,8 @@ def dispatch(args) -> int:
         return show_report()
     if args.command == "capabilities":
         return show_capabilities()
+    if args.command == "policy":
+        return show_policy()
 
     store = open_store(args.db)
     try:
