@@ -193,6 +193,7 @@ uv run unhalted case CASE-8EF53CCD    # one case, end to end
 uv run unhalted compare CASE-8EF53CCD # the same case under Razorpay's retry policy
 uv run unhalted queue                 # what is waiting on a person
 uv run unhalted breakeven             # what the money argument rests on
+uv run unhalted calibration           # whether confidence predicts outcome, on real cases only
 uv run unhalted report                # the batch measurement
 uv run unhalted capabilities          # what this deployment can actually do
 uv run unhalted policy                # the currently loaded policy — every threshold enforced
