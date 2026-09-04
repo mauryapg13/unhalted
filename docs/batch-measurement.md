@@ -1,6 +1,6 @@
 # Batch measurement
 
-Generated 2026-09-03 09:40 UTC · 300 cases ·
+Generated 2026-09-04 07:00 UTC · 300 cases ·
 Rs 120,850 at risk
 
 ## What this batch is
@@ -22,6 +22,28 @@ documentation says happens today.
 A control group absorbs unobserved variation, and a generated batch running two deterministic
 policies has none. Both policies were run over *every* case instead, which is a paired comparison
 and strictly stronger. The holdout stays for the day this runs against real traffic.
+
+## Part two — modelled, and not a measurement
+
+Shown first because it is the number everyone asks for. The counted facts it is built from —
+nothing here needs to know whether anything recovered — follow immediately after, in Part one.
+
+Rupees recovered depends on how often a recovery attempt works, and this project cannot measure
+that: it needs real outcomes at volume. So it is shown as a range. The rates are inputs, not
+findings.
+
+| If attempts succeed at | Agent | Baseline | Difference |
+|---|---:|---:|---:|
+| 20% | Rs 24,170 | Rs 20,947 | Rs 3,223 |
+| 30% | Rs 36,255 | Rs 31,421 | Rs 4,834 |
+| 40% | Rs 48,340 | Rs 41,895 | Rs 6,445 |
+| 50% | Rs 60,425 | Rs 52,368 | Rs 8,057 |
+
+The agent's advantage in this model comes from one thing only: it does not spend attempts on
+failures that a retry provably cannot fix. Everything else in the difference would require knowing
+how customers respond, which nobody here does.
+
+**No line in this section is a measurement, and none should be quoted as one.**
 
 ## Part one — counted, no assumptions
 
@@ -97,22 +119,3 @@ whatever was generated. What *is* countable is how much the choice matters.
 | `0.70-0.89 sampled` | 89 | 30% |
 | `<0.70 held` | 27 | 9% |
 | `>=0.90 auto` | 184 | 61% |
-
-## Part two — modelled, and not a measurement
-
-Rupees recovered depends on how often a recovery attempt works, and this project cannot measure
-that: it needs real outcomes at volume. So it is shown as a range. The rates are inputs, not
-findings.
-
-| If attempts succeed at | Agent | Baseline | Difference |
-|---|---:|---:|---:|
-| 20% | Rs 24,170 | Rs 20,947 | Rs 3,223 |
-| 30% | Rs 36,255 | Rs 31,421 | Rs 4,834 |
-| 40% | Rs 48,340 | Rs 41,895 | Rs 6,445 |
-| 50% | Rs 60,425 | Rs 52,368 | Rs 8,057 |
-
-The agent's advantage in this model comes from one thing only: it does not spend attempts on
-failures that a retry provably cannot fix. Everything else in the difference would require knowing
-how customers respond, which nobody here does.
-
-**No line in this section is a measurement, and none should be quoted as one.**

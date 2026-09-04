@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
+  one) that justify it. It's the number everyone asks for first; the reordering says so in its own
+  first line, and the counted section it depends on follows immediately after rather than
+  fifteen screens later.
+
 ### Fixed
 - A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
   and scheduling on whether *this call* had just created the case row, which is a different

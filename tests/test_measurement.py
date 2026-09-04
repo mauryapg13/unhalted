@@ -215,9 +215,13 @@ def test_the_report_admits_the_holdout_does_nothing_here(batch) -> None:
 
 
 def test_the_report_separates_counted_from_modelled(batch) -> None:
+    """Modelled leads, since it's the number everyone asks for first — but the
+    two must never interleave, and the modelled section must say plainly that
+    the counted facts justifying it come right after."""
     cases, agent, base = batch
     text = render(cases, agent, base)
-    assert text.index("Part one — counted") < text.index("Part two — modelled")
+    assert text.index("Part two — modelled") < text.index("Part one — counted")
+    assert "follow immediately after, in Part one" in text
 
 
 def test_every_diagnosis_is_attributed_to_a_source(batch) -> None:
