@@ -89,7 +89,8 @@ def main() -> int:
         print("no text given — pipe one in, or pass --file")
         return 1
 
-    print(render(propose(text)))
+    result = tui.spin("analyzing the text against config/policy.yaml", lambda: propose(text))
+    print(render(result))
     return 0
 
 

@@ -111,9 +111,11 @@ def show_briefing(store: Store, case: Case) -> None:
     stuck. The fix is not a faster model; it is never blocking a decision the
     raw material already supports.
     """
-    print(f"\n  {DIM}thinking — asking the model for its read on this case "
-          f"(up to {60}s if the endpoint is slow)…{RESET}", flush=True)
-    briefing = brief(_record_for_briefing(store, case))
+    print()
+    briefing = tui.spin(
+        "thinking — asking the model for its read on this case",
+        lambda: brief(_record_for_briefing(store, case)),
+    )
     if briefing:
         print(f"  {BOLD}the agent's read{RESET} {DIM}(advice, not a finding){RESET}")
         for line in briefing.splitlines():

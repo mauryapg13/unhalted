@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- `tui.spin` — a shimmering label that runs while a blocking model call is in flight, on a
+  background thread, and clears the moment it returns. Wired into the reviewer's briefing and
+  `propose_policy_change.py`, the two places a script waits on a live call with the terminal
+  otherwise silent. Off a terminal it prints the label once as a plain static line rather than
+  animating, matching every other degrade-off-a-tty rule in `tui.py`.
 - `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
   threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
   confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
