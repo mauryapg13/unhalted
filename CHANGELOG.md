@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
+  threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
+  confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. The loader is
+  tested against the real shipped file to confirm every parsed value matches what every module
+  currently hardcodes. Nothing reads from it yet — this lands the isolated, zero-risk half first.
+
 ### Changed
 - The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
   one) that justify it. It's the number everyone asks for first; the reordering says so in its own

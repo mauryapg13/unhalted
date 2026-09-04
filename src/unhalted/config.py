@@ -59,6 +59,10 @@ def database_path() -> str:
     return os.environ.get("UNHALTED_DB", "unhalted.db")
 
 
+def policy_path() -> str:
+    return os.environ.get("UNHALTED_POLICY", str(ROOT / "config" / "policy.yaml"))
+
+
 def model_name() -> str:
     return os.environ.get("UNHALTED_MODEL", "")
 

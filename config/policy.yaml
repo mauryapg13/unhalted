@@ -1,0 +1,85 @@
+# The single source of truth for every numeric threshold, time window, and
+# cost this system enforces. schedule_retry, is_execution_allowed, the
+# confidence-authority cut-points, and the ladder's entry costs all read
+# these values rather than each defining its own — the same NPCI band
+# duplicated across three code paths is exactly the bug class this file
+# exists to prevent (see BREAKAGE.md).
+#
+# Changing this file changes what the shell enforces the next time a
+# process restarts. It does not change anything already scheduled or
+# already decided — those are stamped with the rule_version in effect
+# when they were made, recorded in the audit trail, so a policy change is
+# traceable to the exact case it started applying to.
+#
+# Never hand-edit this file to reflect a new circular without going
+# through scripts/propose_policy_change.py first: it is what keeps a
+# proposed number tied to the text that justified it, checked the same way
+# a customer reply's evidence is checked against what they actually wrote.
+
+version: "policy-2026-09-04"
+
+npci:
+  # UPI Autopay's restricted execution bands, IST. A debit initiated inside
+  # one of these must be moved to the end of the band, not rejected outright.
+  # Applies to UPI Autopay only — cards, emandate, nach, netbanking and
+  # wallet are not routed through NPCI and are never banded (see issue #30).
+  restricted_bands:
+    - ["10:00", "13:00"]
+    - ["17:00", "21:30"]
+  rule_version: "npci-2025-08-01"
+
+contact:
+  # Every customer-facing channel — nudges, voice callbacks — is silent
+  # outside this window, regardless of what triggered the message.
+  open: "08:00"
+  close: "19:00"
+
+retries:
+  # NPCI's allowance: one execution plus three retries per billing cycle.
+  cap: 3
+  # How long to wait before each attempt, by what went wrong. A technical
+  # failure is transient and retried soon so it doesn't exhaust the cycle's
+  # allowance inside a short outage; a balance failure needs money to
+  # arrive, which takes at least a day; a notification gap needs the 25
+  # hours Razorpay requires between a pre-debit alert and the charge.
+  backoff:
+    recoverable-technical: ["30m", "2h", "6h"]
+    recoverable-balance: ["1d", "1d", "2d"]
+    notification-gap: ["25h", "25h", "25h"]
+  default_backoff: "6h"
+
+confidence:
+  # Policy, not measurement — see Diagnosis.authority's own docstring.
+  # 0.90 and above acts without a person; 0.70 to 0.89 acts but is sampled
+  # for QA; below 0.70 holds for a human.
+  auto_execute: 0.90
+  auto_execute_sampled_qa: 0.70
+
+reply_policy:
+  # Deliberately asymmetric: missing a stop or distress signal costs a
+  # compliance failure or a person in hardship, so those act on weaker
+  # evidence. Falsely detecting a cancellation costs a paying customer
+  # wrongly cancelled, so that needs strong evidence.
+  acts_on_money: 0.70
+  protective: 0.50
+  cancellation: 0.85
+  rule_version: "reply-policy-2026-09"
+
+ladder:
+  rule_version: "ladder-2026-09"
+  # Rupees. Converted to paise at load time.
+  rung_costs_rupees:
+    silent-retry: 0
+    nudge: 1
+    reauthorisation: 2
+    voice-call: 8
+    human-callback: 60
+
+limits:
+  rule_version: "razorpay-recurring-limits-2026-08"
+  # Rupees. Converted to paise at load time.
+  frictionless_upi_rupees: 15000
+  frictionless_upi_bfsi_rupees: 100000
+  upi_mandate_max_rupees: 100000
+  card_recurring_max_rupees: 15000
+  emandate_max_rupees: 10000000
