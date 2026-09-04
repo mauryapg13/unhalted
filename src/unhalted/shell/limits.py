@@ -23,15 +23,18 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 
+from unhalted.policy import POLICY
+
 RUPEE = 100  # paise
 
-FRICTIONLESS_UPI = 15_000 * RUPEE
-FRICTIONLESS_UPI_BFSI = 1_00_000 * RUPEE
-UPI_MANDATE_MAX = 1_00_000 * RUPEE
-CARD_RECURRING_MAX = 15_000 * RUPEE
-EMANDATE_MAX = 1_00_00_000 * RUPEE
+#: Read from config/policy.yaml — see unhalted.policy.
+FRICTIONLESS_UPI = POLICY.frictionless_upi_paise
+FRICTIONLESS_UPI_BFSI = POLICY.frictionless_upi_bfsi_paise
+UPI_MANDATE_MAX = POLICY.upi_mandate_max_paise
+CARD_RECURRING_MAX = POLICY.card_recurring_max_paise
+EMANDATE_MAX = POLICY.emandate_max_paise
 
-LIMIT_RULE_VERSION = "razorpay-recurring-limits-2026-08"
+LIMIT_RULE_VERSION = POLICY.limit_rule_version
 
 
 class LimitOutcome(str, enum.Enum):

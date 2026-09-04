@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added
+- `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
+  threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
+  confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
+  used to hardcode one of these (`windows.py`, `scheduler.py`, `models.py`, `replies.py`,
+  `ladder.py`, `limits.py`) now reads it from here, mapping the plain string/number keys onto its
+  own domain types itself — `unhalted.policy` never had to learn what a `DiagnosisClass` or a
+  `Rung` is. Migrated one module at a time, full suite run after each, so every value is confirmed
+  identical to what was previously hardcoded rather than assumed to be. A change to the file is
+  live the next process restart, confirmed directly: setting `retries.cap` to 1 in a copy of the
+  file and pointing `UNHALTED_POLICY` at it drops `scheduler.RETRY_CAP` to 1, no code change.
+  Exists because the same NPCI-band concept was already duplicated, and wrongly diverged, across
+  three separate code paths in this project (see `BREAKAGE.md`) — one file, loaded once, is the
+  fix for that entire bug class, not only the specific instances of it found so far.
+- `scripts/propose_policy_change.py` and `core/policy_change.py` — reads free text describing a
+  regulatory change and proposes a field-level diff against `config/policy.yaml`. Same distance
+  between recommending and acting as everywhere else the model touches something that matters: it
+  never writes to the file, a proposed field outside a fixed closed set is refused before being
+  shown, and a proposed value's quote is checked against the actual input text (reusing the same
+  evidence check reply parsing already used, now shared via `core/evidence.py`). Backoff tiers,
+  confidence thresholds and reply-policy thresholds are deliberately not proposable — those are
+  this project's own risk tolerance, not something a circular states. Smoke-tested live against a
+  real NPCI-circular-shaped text: correctly proposed an exact band change, correctly declined to
+  guess at a vaguely-worded mention, correctly treated "unchanged" as nothing to propose.
+
 ### Changed
 - The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
   one) that justify it. It's the number everyone asks for first; the reordering says so in its own

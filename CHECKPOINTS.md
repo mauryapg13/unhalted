@@ -339,6 +339,43 @@ claim that this system has recovered money in production.
 
 ---
 
+### C9e — Policy lives in one file, and a change to it is proposable
+NPCI and RBI requirements change; the numbers this system enforces should not be an archaeology
+project across six modules when they do.
+
+**Done when:** every threshold this system enforces — NPCI bands, contact hours, the retry cap,
+backoff tiers, confidence thresholds, reply-policy thresholds, ladder costs, mandate limits — is
+read from `config/policy.yaml` through `unhalted.policy`, not hardcoded in the module that uses
+it; `scripts/propose_policy_change.py` reads free text describing a change and proposes a
+field-level diff, checked against the exact words that justify each proposed value.
+
+**Why it exists.** The same NPCI-band concept was independently duplicated, and wrongly diverged,
+across three separate code paths in this project before being caught (`BREAKAGE.md`). A concept
+that exists in one place cannot diverge from itself. Separately: a merchant running this against
+real, changing regulation needs a way to update it that is faster than a code review, and safer
+than a human retyping a number by hand from a PDF.
+
+**The model proposes, exactly as far as anywhere else in this project.** It never writes to
+`config/policy.yaml` — `propose_policy_change.py` has no filesystem-write call in it at all,
+verified directly by a test that inspects its own source. A proposed field outside a fixed,
+closed set is refused before being shown, not silently accepted; a proposed value whose quote does
+not actually appear in the input text is dropped the same way an invented reply-evidence span is.
+Backoff tiers, confidence thresholds and reply-policy thresholds are deliberately outside the set
+a circular can touch — those are this project's own risk tolerance, not something NPCI or RBI
+states, and a circular is not a mechanism for relaxing them.
+
+**Migrated one module at a time**, full suite run after each, so every value is confirmed
+identical to what was previously hardcoded — a change to the *source* of a number, not to the
+number — before the next module was touched.
+
+**Not included:** an `--apply` flag, or anything that writes the proposed change for you. Editing
+`config/policy.yaml` is a person's action, deliberately, the same way approving a held case is.
+Also not included: preserving the file's own comments through an automated edit — a real concern
+raised and set aside rather than solved, since the honest answer this late is "not done," not a
+tool that silently strips the documentation explaining why each number is what it is.
+
+---
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 

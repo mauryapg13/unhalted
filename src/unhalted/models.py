@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from unhalted.policy import POLICY
+
 
 class DiagnosisClass(str, enum.Enum):
     """Root-cause classes. Each maps to a distinct recovery path."""
@@ -118,13 +120,13 @@ class Diagnosis(BaseModel):
         values the taxonomy stopped inventing.
 
         The ordering is defensible — less certain means less autonomy — but the
-        specific numbers are asserted. C8 makes them answerable: the confidence
-        above which auto-executing turned out right more often than holding
-        would have been. See issue #7.
+        specific numbers are asserted, in config/policy.yaml, not here. C8 makes
+        them answerable: the confidence above which auto-executing turned out
+        right more often than holding would have been. See issue #7.
         """
-        if self.confidence >= 0.90:
+        if self.confidence >= POLICY.confidence_auto_execute:
             return "auto-execute"
-        if self.confidence >= 0.70:
+        if self.confidence >= POLICY.confidence_sampled_qa:
             return "auto-execute-sampled-qa"
         return "hold-for-human"
 

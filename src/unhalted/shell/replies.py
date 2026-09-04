@@ -26,19 +26,21 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from unhalted.models import Intent, ParsedReply, Sentiment
+from unhalted.policy import POLICY
 
-#: Anything that moves money or releases a suppression. The specification's bar.
-ACTS_ON_MONEY = 0.70
+#: Anything that moves money or releases a suppression. The specification's
+#: bar. Read from config/policy.yaml — see unhalted.policy.
+ACTS_ON_MONEY = POLICY.reply_acts_on_money
 
 #: Protective stops. Lower, because stopping wrongly costs a delayed recovery
 #: and failing to stop costs a compliance breach or a person in hardship.
-PROTECTIVE = 0.50
+PROTECTIVE = POLICY.reply_protective
 
 #: Cancelling a subscription is close to irreversible from the customer's side,
 #: and frustration reads a lot like intent to leave. Needs strong evidence.
-CANCELLATION = 0.85
+CANCELLATION = POLICY.reply_cancellation
 
-REPLY_RULE_VERSION = "reply-policy-2026-09"
+REPLY_RULE_VERSION = POLICY.reply_rule_version
 
 
 @dataclass(frozen=True)

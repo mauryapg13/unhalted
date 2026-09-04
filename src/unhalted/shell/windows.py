@@ -15,20 +15,20 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from unhalted.policy import POLICY
+
 IST = ZoneInfo("Asia/Kolkata")
 
 #: Bands in which NPCI forbids autopay execution, as (start inclusive, end exclusive).
-RESTRICTED_BANDS: tuple[tuple[time, time], ...] = (
-    (time(10, 0), time(13, 0)),
-    (time(17, 0), time(21, 30)),
-)
+#: Read from config/policy.yaml — see unhalted.policy.
+RESTRICTED_BANDS: tuple[tuple[time, time], ...] = POLICY.npci_restricted_bands
 
 #: Hours during which a customer may be contacted, on any channel.
-CONTACT_OPEN = time(8, 0)
-CONTACT_CLOSE = time(19, 0)
+CONTACT_OPEN = POLICY.contact_open
+CONTACT_CLOSE = POLICY.contact_close
 
 #: Bumped whenever the rules above change, and recorded on every decision.
-WINDOW_RULE_VERSION = "npci-2025-08-01"
+WINDOW_RULE_VERSION = POLICY.npci_rule_version
 
 #: Rails the execution bands do **not** govern.
 #:

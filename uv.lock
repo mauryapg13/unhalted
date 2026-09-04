@@ -800,6 +800,7 @@ dependencies = [
     { name = "httpx" },
     { name = "jinja2" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "razorpay" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -819,6 +820,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-bdd", marker = "extra == 'dev'", specifier = ">=8.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "razorpay", specifier = ">=2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },

@@ -29,10 +29,12 @@ import enum
 from dataclasses import dataclass, field
 
 from unhalted.models import DiagnosisClass
+from unhalted.policy import POLICY
 
 RUPEE = 100  # paise
 
-LADDER_RULE_VERSION = "ladder-2026-09"
+#: Read from config/policy.yaml — see unhalted.policy.
+LADDER_RULE_VERSION = POLICY.ladder_rule_version
 
 
 class Rung(int, enum.Enum):
@@ -41,6 +43,22 @@ class Rung(int, enum.Enum):
     REAUTHORISATION = 3
     VOICE_CALL = 4
     HUMAN_CALLBACK = 5
+
+
+#: This module's own name for each rung, in the plain-string terms
+#: config/policy.yaml uses — policy.py is not allowed to know Rung exists,
+#: so the mapping from its slugs back to this enum lives here.
+_SLUG = {
+    Rung.SILENT_RETRY: "silent-retry",
+    Rung.NUDGE: "nudge",
+    Rung.REAUTHORISATION: "reauthorisation",
+    Rung.VOICE_CALL: "voice-call",
+    Rung.HUMAN_CALLBACK: "human-callback",
+}
+
+
+def _cost(rung: Rung) -> int:
+    return POLICY.ladder_rung_costs_paise[_SLUG[rung]]
 
 
 @dataclass(frozen=True)
@@ -55,24 +73,24 @@ class Intervention:
 
 LADDER: dict[Rung, Intervention] = {
     Rung.SILENT_RETRY: Intervention(
-        Rung.SILENT_RETRY, "silent retry", 0,
+        Rung.SILENT_RETRY, "silent retry", _cost(Rung.SILENT_RETRY),
         "costs nothing and disturbs nobody; always worth trying when it can work",
         is_contact=False,
     ),
     Rung.NUDGE: Intervention(
-        Rung.NUDGE, "message with a pay link", 1 * RUPEE,
+        Rung.NUDGE, "message with a pay link", _cost(Rung.NUDGE),
         "tells the customer something they may not know and gives them a way to act",
     ),
     Rung.REAUTHORISATION: Intervention(
-        Rung.REAUTHORISATION, "re-authorisation link", 2 * RUPEE,
+        Rung.REAUTHORISATION, "re-authorisation link", _cost(Rung.REAUTHORISATION),
         "the only path when the mandate itself is the problem",
     ),
     Rung.VOICE_CALL: Intervention(
-        Rung.VOICE_CALL, "automated voice call", 8 * RUPEE,
+        Rung.VOICE_CALL, "automated voice call", _cost(Rung.VOICE_CALL),
         "reaches people who do not read messages",
     ),
     Rung.HUMAN_CALLBACK: Intervention(
-        Rung.HUMAN_CALLBACK, "human callback", 60 * RUPEE,
+        Rung.HUMAN_CALLBACK, "human callback", _cost(Rung.HUMAN_CALLBACK),
         "the most effective and by far the most expensive thing available",
     ),
 }
