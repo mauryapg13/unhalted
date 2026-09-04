@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from unhalted.policy import POLICY
+
 
 class DiagnosisClass(str, enum.Enum):
     """Root-cause classes. Each maps to a distinct recovery path."""
@@ -118,13 +120,13 @@ class Diagnosis(BaseModel):
         values the taxonomy stopped inventing.
 
         The ordering is defensible — less certain means less autonomy — but the
-        specific numbers are asserted. C8 makes them answerable: the confidence
-        above which auto-executing turned out right more often than holding
-        would have been. See issue #7.
+        specific numbers are asserted, in config/policy.yaml, not here. C8 makes
+        them answerable: the confidence above which auto-executing turned out
+        right more often than holding would have been. See issue #7.
         """
-        if self.confidence >= 0.90:
+        if self.confidence >= POLICY.confidence_auto_execute:
             return "auto-execute"
-        if self.confidence >= 0.70:
+        if self.confidence >= POLICY.confidence_sampled_qa:
             return "auto-execute-sampled-qa"
         return "hold-for-human"
 
@@ -199,6 +201,11 @@ class ParsedReply(BaseModel):
     #: returned nothing usable and was retried — a reliability fact, distinct
     #: from whether the reading was right.
     attempts: int = 0
+    #: What those calls cost, from the provider's own reported `usage.cost`.
+    #: Failed parses carry a cost too: a call that returns nothing is still
+    #: billed, and a spend figure that omits them understates what the model
+    #: costs to run.
+    cost_usd: float = 0.0
     #: Set when the model could not be reached or returned nothing usable. The
     #: reply is preserved and queued; no intent is inferred from silence.
     failed: bool = False

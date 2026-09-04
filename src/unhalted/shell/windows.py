@@ -15,20 +15,43 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from unhalted.policy import POLICY
+
 IST = ZoneInfo("Asia/Kolkata")
 
 #: Bands in which NPCI forbids autopay execution, as (start inclusive, end exclusive).
-RESTRICTED_BANDS: tuple[tuple[time, time], ...] = (
-    (time(10, 0), time(13, 0)),
-    (time(17, 0), time(21, 30)),
-)
+#: Read from config/policy.yaml — see unhalted.policy.
+RESTRICTED_BANDS: tuple[tuple[time, time], ...] = POLICY.npci_restricted_bands
 
 #: Hours during which a customer may be contacted, on any channel.
-CONTACT_OPEN = time(8, 0)
-CONTACT_CLOSE = time(19, 0)
+CONTACT_OPEN = POLICY.contact_open
+CONTACT_CLOSE = POLICY.contact_close
 
 #: Bumped whenever the rules above change, and recorded on every decision.
-WINDOW_RULE_VERSION = "npci-2025-08-01"
+WINDOW_RULE_VERSION = POLICY.npci_rule_version
+
+#: Rails the execution bands do **not** govern.
+#:
+#: The restriction is on UPI Autopay. Recurring card payments are not routed
+#: through that rail, and emandate settles through NACH, which has its own cycle
+#: and its own bank-holiday shifting. Applying the UPI rule to all three delayed
+#: card retries for a regulation that does not reach them and — worse — recorded
+#: `WINDOW_VIOLATION` in the audit trail for violations that never happened. See
+#: issue #30.
+UNBANDED_METHODS = frozenset({"card", "emandate", "nach", "netbanking", "wallet"})
+
+
+def subject_to_execution_bands(method: str | None) -> bool:
+    """Whether NPCI's autopay bands govern this payment method.
+
+    An unknown method is treated as governed. The two mistakes are not
+    symmetrical: a card retry delayed for a rule that does not apply costs a few
+    hours, and a UPI debit executed inside a restricted band is a regulatory
+    breach. When we cannot tell which rail we are on, we take the delay.
+    """
+    if method is None:
+        return True
+    return method.lower() not in UNBANDED_METHODS
 
 
 @dataclass(frozen=True)
@@ -50,8 +73,20 @@ def as_ist(when: datetime) -> datetime:
     return when.replace(tzinfo=IST) if when.tzinfo is None else when.astimezone(IST)
 
 
-def is_execution_allowed(when: datetime) -> WindowCheck:
-    """Whether `when` falls in an NPCI-permitted autopay execution window."""
+def is_execution_allowed(when: datetime, *, method: str | None = None) -> WindowCheck:
+    """Whether `when` falls in an NPCI-permitted autopay execution window.
+
+    `method` decides whether the question applies at all. Omitting it keeps the
+    conservative reading, which is what every existing caller wants until it has
+    a method to pass.
+    """
+    if not subject_to_execution_bands(method):
+        return WindowCheck(
+            allowed=True,
+            rule_version=WINDOW_RULE_VERSION,
+            reason=f"{method} is not routed through UPI Autopay; no execution band applies",
+        )
+
     t = as_ist(when).time()
     for start, end in RESTRICTED_BANDS:
         if start <= t < end:
@@ -68,10 +103,10 @@ def is_execution_allowed(when: datetime) -> WindowCheck:
     )
 
 
-def next_allowed_execution(at_or_after: datetime) -> datetime:
+def next_allowed_execution(at_or_after: datetime, *, method: str | None = None) -> datetime:
     """Earliest NPCI-permitted execution time at or after `at_or_after`."""
     when = as_ist(at_or_after)
-    check = is_execution_allowed(when)
+    check = is_execution_allowed(when, method=method)
     if check.allowed:
         return when
     assert check.band is not None

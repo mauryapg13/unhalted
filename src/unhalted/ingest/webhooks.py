@@ -27,6 +27,7 @@ from unhalted import config
 from unhalted.agent import handle_failure
 from unhalted.ingest.normalize import UnsupportedEvent, from_payment_failed
 from unhalted.models import AuditRecord, Case
+from unhalted.runner import run_due
 from unhalted.shell import windows
 from unhalted.store import Store
 
@@ -110,6 +111,35 @@ async def razorpay_webhook(request: Request) -> dict[str, Any]:
     case = handle_failure(store, signal)
 
     return {"status": "accepted", "case_id": case.id, "state": case.state.value}
+
+
+@app.post("/internal/run-due")
+def run_due_endpoint() -> dict[str, object]:
+    """Execute whatever has come due. Intended for an external scheduler.
+
+    The same function the CLI calls, reachable over HTTP so that a deployment
+    without a long-running process can still have a clock: a cloud scheduler,
+    a cron container, or a platform timer posts here and the work happens.
+
+    Idempotent, so a scheduler that retries on a timeout cannot double-charge —
+    the second call finds nothing due. Not authenticated, and it must not be
+    exposed publicly as it stands; that is a deployment concern this repository
+    does not reach, and saying so is better than a token nobody rotates.
+    """
+    store = get_store()
+    report = run_due(store)
+    log.info("run-due: %s", report.render().splitlines()[0])
+    return {
+        "at": report.at.isoformat(),
+        "worker": report.worker,
+        "claimed": report.claimed,
+        "done": report.done,
+        "held": report.held,
+        "cancelled": report.cancelled,
+        "no_adapter": report.no_adapter,
+        "failed": report.failed,
+        "reclaimed": report.reclaimed,
+    }
 
 
 @app.get("/cases/{case_id}")

@@ -122,3 +122,75 @@ def test_verbose_shows_inputs_that_the_default_hides(db, capsys) -> None:
     verbose = run(["--db", path, "case", case_id, "-v"], capsys)
     assert len(verbose) > len(plain)
     assert "error_reason" in verbose
+
+
+def test_breakeven_reads_real_stored_cases(db, capsys) -> None:
+    """C9c. Computed from what is in the store, not from a batch fixture."""
+    path, _ = db
+    out = run(["--db", path, "breakeven"], capsys)
+    assert "MONEY AT RISK" in out
+    assert "BREAKS EVEN AT" in out
+    assert "NOT REPORTED" in out
+
+
+def test_breakeven_says_so_when_there_is_nothing_to_compute(tmp_path, capsys) -> None:
+    from unhalted.store import Store
+
+    path = str(tmp_path / "empty.db")
+    Store(path).close()
+    assert cli.main(["--db", path, "breakeven"]) == 1
+    assert "no diagnosed cases yet" in capsys.readouterr().out
+
+
+def test_run_due_executes_from_the_command_line(db, capsys) -> None:
+    """#31. The same function a scheduler would call over HTTP."""
+    path, _ = db
+    out = run(["--db", path, "run-due"], capsys)
+    assert "claimed=" in out
+    assert "worker=" in out
+
+
+def test_global_flags_work_after_the_subcommand_too(db, capsys) -> None:
+    """argparse puts an option on the parser it was declared against, so
+    `--db` before the subcommand and `--db` after it are different flags. Both
+    positions have to work or the tool teaches a distinction nobody wants."""
+    path, case_id = db
+    before = run(["--db", path, "case", case_id], capsys)
+    after = run(["case", case_id, "--db", path], capsys)
+    assert case_id in before
+    assert case_id in after
+
+
+def test_an_absent_flag_on_the_subcommand_does_not_erase_the_global_one(db, capsys) -> None:
+    """The argparse trap: a subparser `default=None` silently overwrites what
+    the top-level parser already read. SUPPRESS is why this passes."""
+    path, case_id = db
+    assert case_id in run(["--db", path, "cases"], capsys)
+
+
+def test_a_stated_time_announces_itself(db, capsys) -> None:
+    path, _ = db
+    out = run(["--db", path, "run-due", "--at", "2026-09-04 11:00"], capsys)
+    assert "CLOCK OVERRIDDEN" in out
+    assert "Not for recording" in out
+
+
+def test_an_unreadable_time_is_refused_with_the_format(db, capsys) -> None:
+    path, _ = db
+    assert cli.main(["--db", path, "run-due", "--at", "tomorrow-ish"]) == 2
+    assert "2026-09-04 11:00" in capsys.readouterr().out
+
+
+def test_a_database_deleted_under_its_own_log_says_so(tmp_path, capsys) -> None:
+    """`rm unhalted.db` leaves -wal and -shm behind and the next open fails
+    with a bare `disk I/O error`. Resetting for a demo is exactly when somebody
+    deletes a database by hand, so the message has to name the remedy."""
+    path = tmp_path / "gone.db"
+    (tmp_path / "gone.db-wal").touch()
+    (tmp_path / "gone.db-shm").touch()
+
+    assert cli.main(["--db", str(path), "cases"]) == 2
+    out = capsys.readouterr().out
+    assert "write-ahead log" in out
+    assert "rm -f" in out
+    assert "Traceback" not in out

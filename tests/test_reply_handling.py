@@ -112,6 +112,26 @@ def test_a_promise_replaces_the_pending_retry_rather_than_adding_one(
     assert pending[0]["scheduled_for"].startswith("2026-09-25")
 
 
+def test_a_realigned_retry_lands_at_the_start_of_contact_hours_not_the_reply_time(
+    store, case, monkeypatch
+) -> None:
+    """A promise carries a day, never a time — "the 2nd" has none, and asking
+    the model to invent one would fabricate what the customer actually said.
+    Combining that day with `now`'s clock time instead read a promise made at
+    14:00 as "this time, tomorrow" rather than "tomorrow morning": a reply
+    naming *any* future day landed 24-ish hours out no matter what the day
+    actually was. It must land at the start of contact hours on the promised
+    day instead."""
+    monkeypatch.setattr(
+        agent, "parse_reply",
+        fake_parse((Intent.PROMISE_TO_PAY, 0.95), date_raw="2026-09-25"),
+    )
+    agent.handle_reply(store, case, "kal subah kar dunga", now=NOW)  # NOW is 14:00
+
+    pending = store.pending_actions(case_id=case.id)
+    assert pending[0]["scheduled_for"] == "2026-09-25T08:00:00+05:30"
+
+
 def test_a_promise_with_no_usable_date_changes_no_timing(store, case, monkeypatch) -> None:
     """The specification: record the promise, ask them to confirm a date."""
     monkeypatch.setattr(
@@ -154,3 +174,105 @@ def test_a_held_case_reports_the_date_today_correctly(store, case, monkeypatch) 
     )
     _, outcome = agent.handle_reply(store, case, "kal", now=NOW)
     assert outcome.realign_to is None, "a date in the past must be refused"
+
+
+# --- Findings from the exploratory pass -----------------------------------
+
+
+def test_evidence_that_does_not_quote_the_reply_is_dropped() -> None:
+    """Issue #25. An invented span is shown to a reviewer as if it were a quote."""
+    from unhalted.core.reply import _quotes_the_reply
+
+    reply = "salary aayega 5th ko, tab try karna"
+    assert _quotes_the_reply("salary aayega", reply)
+    assert _quotes_the_reply("SALARY   AAYEGA", reply), "spacing and case are not meaning"
+    assert not _quotes_the_reply("", reply)
+    assert not _quotes_the_reply("   ", reply)
+    assert not _quotes_the_reply("I will pay you next month", reply)
+
+
+def test_a_truncated_response_is_not_retried(monkeypatch) -> None:
+    """Issue #22. At temperature 0 it truncates identically and bills each time.
+
+    Needs a key configured, or `_call_model` returns before `httpx.post` is ever
+    reached — true here whenever nothing has loaded a real one into the
+    environment, CI included, and the mock below then goes uncalled.
+    """
+    import httpx
+
+    from unhalted.core import reply as reply_mod
+
+    monkeypatch.setattr(reply_mod.config, "model_api_key", lambda: "test-key")
+
+    calls = {"n": 0}
+
+    class Truncated:
+        status_code = 200
+
+        def json(self) -> dict:
+            calls["n"] += 1
+            return {
+                "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+                "usage": {"cost": 0.0003},
+            }
+
+    def fake_post(*args, **kwargs):
+        return Truncated()
+
+    original = httpx.post
+    httpx.post = fake_post
+    try:
+        parsed = reply_mod.parse("cancel it. no wait, I'll pay on the 10th. STOP")
+    finally:
+        httpx.post = original
+
+    assert calls["n"] == 1, "a length finish must not be retried"
+    assert parsed.failed
+    assert "truncated" in parsed.failure_reason
+    assert "max_tokens" in parsed.failure_reason
+    assert parsed.cost_usd == 0.0003, "a call that returned nothing was still billed"
+
+
+def test_a_realigned_retry_is_banded_the_same_way_the_first_one_was(tmp_path) -> None:
+    """Issue #30 again, on the path the original fix missed.
+
+    A promise-to-pay reschedules through a second `schedule_retry` call. It did
+    not pass the method, so the same card case was unbanded when first scheduled
+    and banded when realigned — moved for a regulation that does not reach it,
+    and recorded as a WINDOW_VIOLATION that never happened.
+    """
+    from datetime import date, datetime
+
+    from unhalted.agent import handle_failure
+    from unhalted.models import FailureSignal
+    from unhalted.shell.scheduler import schedule_retry
+    from unhalted.shell.windows import IST
+    from unhalted.store import Store
+
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "realign.db"))
+    try:
+        case = handle_failure(
+            store,
+            FailureSignal(
+                payment_id="pay_RE", customer_ref="cust_re", amount_paise=49900,
+                occurred_at=now, source="test", method="card",
+                error_reason="insufficient_funds", error_source="customer",
+            ),
+            now=now,
+        )
+        signals = store.signals(case.id)
+        assert signals[0].method == "card"
+
+        # Both paths, same target, same method: they must agree.
+        target = datetime.combine(date(2026, 9, 4), now.timetz())
+        banded = schedule_retry(target, retry_count=0, now=now, method=None)
+        carded = schedule_retry(target, retry_count=0, now=now, method="card")
+
+        assert any("WINDOW_VIOLATION" in r for r in banded.rules_fired)
+        assert not any("WINDOW_VIOLATION" in r for r in carded.rules_fired), (
+            "a card retry must not be moved for a UPI Autopay rule"
+        )
+    finally:
+        store.close()
+

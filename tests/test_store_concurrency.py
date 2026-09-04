@@ -112,3 +112,127 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
         assert len(reopened.pending_actions(case_id=case.id)) == 2
     finally:
         reopened.close()
+
+
+# --- leasing across processes (#31) -----------------------------------------
+#
+# Threads share this module's Store and its lock, so they cannot show what two
+# *deployed* workers would do. These use real processes against one file.
+
+
+def _claim_in_a_separate_process(path, name, due_iso, queue):  # pragma: no cover
+    """Runs in a child process, so it must be importable at module level."""
+    from datetime import datetime, timedelta
+
+    from unhalted.store import Store
+
+    due = datetime.fromisoformat(due_iso)
+    store = Store(path)
+    claimed = []
+    try:
+        for _ in range(20):
+            rows = store.lease_due_actions(
+                due, worker=name, lease_for=timedelta(minutes=5), limit=7
+            )
+            if not rows:
+                break
+            claimed.extend(int(r["id"]) for r in rows)
+        queue.put((name, claimed, None))
+    except Exception as exc:  # noqa: BLE001 - the child reports, the parent asserts
+        queue.put((name, [], f"{type(exc).__name__}: {exc}"))
+    finally:
+        store.close()
+
+
+def test_four_processes_never_claim_the_same_action(tmp_path) -> None:
+    """The regression that matters most in this file.
+
+    An earlier lease read its claim back with `WHERE worker = ? AND
+    leased_until = ?`, which is not a unique key — the same worker claiming
+    twice inside one window re-read its earlier batch. Four processes over 400
+    actions produced 386 double-claims, and every one would have been a debit
+    attempted twice. `UPDATE ... RETURNING` makes claim and read one statement.
+    """
+    import multiprocessing as mp
+    from datetime import timedelta
+
+    path = str(tmp_path / "mw.db")
+    now = datetime(2026, 9, 3, 10, 0, tzinfo=IST)
+    due = now + timedelta(days=2)
+
+    store = Store(path)
+    for i in range(60):
+        case = handle_failure(store, signal(900 + i), now=now)
+        store.schedule_action(case.id, case.customer_ref, "nudge", now, now)
+    expected = len(store.pending_actions())
+    store.close()
+
+    ctx = mp.get_context("spawn")
+    queue = ctx.Queue()
+    workers = [
+        ctx.Process(target=_claim_in_a_separate_process,
+                    args=(path, f"w{i}", due.isoformat(), queue))
+        for i in range(4)
+    ]
+    for w in workers:
+        w.start()
+    results = [queue.get(timeout=60) for _ in workers]
+    for w in workers:
+        w.join(timeout=60)
+
+    errors = [e for _, _, e in results if e]
+    assert not errors, f"a worker failed: {errors}"
+
+    all_claims = [i for _, claims, _ in results for i in claims]
+    assert len(all_claims) == len(set(all_claims)), "an action was claimed twice"
+    assert len(set(all_claims)) == expected, "some actions were never claimed"
+
+
+def test_a_redelivered_payment_is_reported_as_known_not_as_opened(tmp_path) -> None:
+    """The audit trail must not claim an opening that did not happen.
+
+    Razorpay redelivers, and re-running the demo script sends the same payment
+    again. Both correctly match the existing case; recording "case-opened" for
+    either made the trail assert an event that never occurred.
+    """
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "dupe.db"))
+    try:
+        first = handle_failure(store, signal(1), now=now)
+        second = handle_failure(store, signal(1), now=now)
+        assert first.id == second.id, "one payment is one case"
+
+        ingests = [r.action for r in store.timeline(first.id)
+                   if r.decision_type == "ingest"]
+        assert ingests == ["case-opened", "signal already known; case is open"]
+    finally:
+        store.close()
+
+
+def test_novelty_is_decided_under_the_same_lock_as_the_case(tmp_path) -> None:
+    store = Store(str(tmp_path / "novel.db"))
+    try:
+        _, created_first = store.open_case_or_get(signal(2))
+        _, created_again = store.open_case_or_get(signal(2))
+        assert created_first is True
+        assert created_again is False
+    finally:
+        store.close()
+
+
+def test_actions_can_be_read_in_any_state(tmp_path) -> None:
+    """The scheduler view needs cancelled rows too — an action stopped by a
+    rule is an event worth showing, and `pending_actions` cannot return it."""
+    now = datetime(2026, 9, 3, 11, 0, tzinfo=IST)
+    store = Store(str(tmp_path / "states.db"))
+    try:
+        case = handle_failure(store, signal(7), now=now)
+        assert len(store.actions(state="pending")) >= 1
+        assert store.actions(state="cancelled") == []
+
+        store.cancel_pending("REVOKED", case_id=case.id)
+        assert store.actions(state="pending") == []
+        assert len(store.actions(state="cancelled")) >= 1
+        assert len(store.actions()) >= 1, "no state filter means every state"
+    finally:
+        store.close()

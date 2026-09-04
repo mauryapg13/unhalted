@@ -163,6 +163,17 @@ def test_a_redelivered_event_does_not_open_a_second_case(client) -> None:
     assert len(client.store.all_cases()) == 1
 
 
+def test_two_different_payments_open_two_different_cases(client) -> None:
+    """The dedup above must key on the payment, not fire on every second
+    webhook regardless of what it carries. Real traffic is never one payment
+    replayed — it's many, and each of those needs its own case."""
+    first = post(client, load("payment_failed_card"), event_id="evt_x")
+    second = post(client, load("payment_failed_netbanking"), event_id="evt_y")
+
+    assert first.json()["case_id"] != second.json()["case_id"]
+    assert len(client.store.all_cases()) == 2
+
+
 def test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case(client) -> None:
     """Belt and braces: even a fresh event id must not double-count a payment."""
     event = load("payment_failed_netbanking")
@@ -171,6 +182,31 @@ def test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case(client) 
 
     assert second.json()["case_id"] == first.json()["case_id"]
     assert len(client.store.all_cases()) == 1
+
+
+def test_the_same_payment_under_a_new_event_id_does_not_schedule_a_second_retry(client) -> None:
+    """Reusing the case is not enough on its own — this passed with two
+    pending retries for one failure before `handle_failure` gated on whether
+    the case had actually been diagnosed rather than on which call created its
+    row. Two scheduled retries for one failure is two scheduled debits."""
+    event = load("payment_failed_netbanking")
+    first = post(client, event, event_id="evt_a")
+    post(client, event, event_id="evt_b")
+
+    case_id = first.json()["case_id"]
+    assert len(client.store.pending_actions(case_id=case_id)) == 1
+
+
+def test_the_very_first_delivery_is_recorded_as_case_opened(client) -> None:
+    """ingest/webhooks.py creates the case row itself, for durability, before
+    handle_failure ever runs — so from inside that function the row always
+    looks pre-existing, including on a payment's genuine first delivery. That
+    must not read as a repeat in the one record anyone is meant to trust."""
+    case_id = post(client, load("payment_failed_netbanking")).json()["case_id"]
+    ingest = next(
+        r for r in client.store.timeline(case_id) if r.decision_type == "ingest"
+    )
+    assert ingest.action == "case-opened"
 
 
 def test_a_novel_error_reason_is_held_for_a_human_not_retried(client) -> None:
@@ -205,3 +241,41 @@ def test_the_signal_is_durable_before_any_processing_happens(client) -> None:
         assert seen["case_existed"], "the signal was not persisted before processing"
     finally:
         wh.handle_failure = real
+
+
+def test_a_payment_in_another_currency_is_refused_at_ingest() -> None:
+    """Issue #24. Razorpay accepts USD orders; every rule below here is Indian."""
+    import pytest
+
+    from unhalted.ingest.normalize import UnsupportedEvent, from_payment_failed
+
+    def event(currency: str) -> dict:
+        return {
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {
+                "id": "pay_CUR", "amount": 49900, "currency": currency,
+                "method": "card", "error_reason": "insufficient_funds",
+                "contact": "+919845127634", "created_at": 1788381176,
+            }}},
+        }
+
+    assert from_payment_failed(event("INR")).amount_rupees == 499.0
+
+    with pytest.raises(UnsupportedEvent, match="USD"):
+        from_payment_failed(event("USD"))
+
+
+def test_the_run_due_endpoint_is_the_same_pass_over_http() -> None:
+    """#31. A deployment without a long-running process still needs a clock;
+    an external scheduler posting here is that clock."""
+    from fastapi.testclient import TestClient
+
+    from unhalted.ingest.webhooks import app
+
+    with TestClient(app) as client:
+        body = client.post("/internal/run-due").json()
+
+    assert body["claimed"] >= 0
+    assert "worker" in body
+    for key in ("done", "held", "cancelled", "no_adapter", "failed", "reclaimed"):
+        assert key in body, f"{key} missing from the run-due report"

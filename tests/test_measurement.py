@@ -90,13 +90,51 @@ def test_the_baseline_spends_every_attempt_on_a_failure_it_cannot_fix() -> None:
     assert run.futile_attempts == 3
 
 
-def test_the_baseline_retries_inside_forbidden_hours() -> None:
+def test_the_baseline_retries_inside_forbidden_hours_on_upi() -> None:
     """Not a strawman: retrying at the same time of day lands in a restricted
     band whenever the original failure did."""
-    assert baseline.run(signal(hour=11), DiagnosisClass.RECOVERABLE_BALANCE
+    upi = signal(hour=11).model_copy(update={"method": "upi"})
+    assert baseline.run(upi, DiagnosisClass.RECOVERABLE_BALANCE
                         ).attempts_in_restricted_window == 3
-    assert baseline.run(signal(hour=14), DiagnosisClass.RECOVERABLE_BALANCE
+    allowed = signal(hour=14).model_copy(update={"method": "upi"})
+    assert baseline.run(allowed, DiagnosisClass.RECOVERABLE_BALANCE
                         ).attempts_in_restricted_window == 0
+
+
+@pytest.mark.parametrize("method", ["card", "emandate", "netbanking", None])
+def test_only_upi_is_governed_by_the_npci_execution_bands(method) -> None:
+    """The bands are a UPI Autopay rule. Counting a card retry against them
+    credited this system with an advantage it does not have — 705 violations
+    became 213 on a mandate-heavy mix once the rule was scoped to its rail."""
+    at_eleven = signal(hour=11).model_copy(update={"method": method})
+    run = baseline.run(at_eleven, DiagnosisClass.RECOVERABLE_BALANCE)
+    assert run.attempts == 3, "the retry count is unchanged"
+    assert run.attempts_in_restricted_window == 0
+
+
+def test_a_retry_count_razorpay_does_not_document_is_declared_as_assumed() -> None:
+    """Their emandate tab states no count and no daily cadence."""
+    upi = signal().model_copy(update={"method": "upi"})
+    assert not baseline.run(upi, DiagnosisClass.RECOVERABLE_BALANCE).assumption_used
+
+    emandate = signal().model_copy(update={"method": "emandate"})
+    run = baseline.run(emandate, DiagnosisClass.RECOVERABLE_BALANCE)
+    assert run.assumption_used
+    assert any("no retry count" in n for n in run.notes)
+
+
+def test_emandate_attempts_are_never_closer_than_a_day_apart() -> None:
+    """Razorpay: the next attempt waits on the previous one settling, which
+    may exceed 24 hours. Modelled at exactly 24 — the fastest they allow, and
+    so the reading that cannot inflate the agent's advantage."""
+    from datetime import datetime as _dt
+    from itertools import pairwise
+
+    emandate = signal().model_copy(update={"method": "emandate"})
+    stamps = [_dt.fromisoformat(t) for t in
+              baseline.run(emandate, DiagnosisClass.RECOVERABLE_BALANCE).scheduled_at]
+    gaps = [(b - a).total_seconds() / 3600 for a, b in pairwise(stamps)]
+    assert all(g >= 24 for g in gaps)
 
 
 # -- what the comparison may claim -------------------------------------------
@@ -177,9 +215,13 @@ def test_the_report_admits_the_holdout_does_nothing_here(batch) -> None:
 
 
 def test_the_report_separates_counted_from_modelled(batch) -> None:
+    """Modelled leads, since it's the number everyone asks for first — but the
+    two must never interleave, and the modelled section must say plainly that
+    the counted facts justifying it come right after."""
     cases, agent, base = batch
     text = render(cases, agent, base)
-    assert text.index("Part one — counted") < text.index("Part two — modelled")
+    assert text.index("Part two — modelled") < text.index("Part one — counted")
+    assert "follow immediately after, in Part one" in text
 
 
 def test_every_diagnosis_is_attributed_to_a_source(batch) -> None:

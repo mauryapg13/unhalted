@@ -12,11 +12,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from unhalted.models import DiagnosisClass
+from unhalted.policy import POLICY
 from unhalted.shell import windows
 
 #: No more attempts than this per billing cycle, matching NPCI's allowance of
 #: one execution plus three retries. Not overridable at any confidence.
-RETRY_CAP = 3
+#: Read from config/policy.yaml — see unhalted.policy.
+RETRY_CAP = POLICY.retry_cap
 
 #: How long to wait before each attempt, by what went wrong.
 #:
@@ -28,26 +30,16 @@ RETRY_CAP = 3
 #: A balance failure needs money to arrive, which takes a day at minimum and
 #: usually a payday. A notification gap needs the 25 hours Razorpay requires
 #: between a pre-debit alert and the charge it precedes.
+#:
+#: Values read from config/policy.yaml; only the key type (DiagnosisClass,
+#: not the plain string policy.py stores it as) is decided here, because
+#: policy.py is not allowed to know this enum exists.
 BACKOFF: dict[DiagnosisClass, tuple[timedelta, ...]] = {
-    DiagnosisClass.RECOVERABLE_TECHNICAL: (
-        timedelta(minutes=30),
-        timedelta(hours=2),
-        timedelta(hours=6),
-    ),
-    DiagnosisClass.RECOVERABLE_BALANCE: (
-        timedelta(days=1),
-        timedelta(days=1),
-        timedelta(days=2),
-    ),
-    DiagnosisClass.NOTIFICATION_GAP: (
-        timedelta(hours=25),
-        timedelta(hours=25),
-        timedelta(hours=25),
-    ),
+    DiagnosisClass(klass): durations for klass, durations in POLICY.backoff_raw.items()
 }
 
 #: Used when a class has no schedule of its own.
-DEFAULT_BACKOFF = timedelta(hours=6)
+DEFAULT_BACKOFF = POLICY.default_backoff
 
 
 def backoff_for(klass: DiagnosisClass | None, attempt: int) -> timedelta:
@@ -84,6 +76,7 @@ def schedule_retry(
     retry_count: int,
     *,
     now: datetime | None = None,
+    method: str | None = None,
 ) -> ScheduleDecision:
     """Schedule a retry at or after `requested_at`, or refuse.
 
@@ -117,10 +110,13 @@ def schedule_retry(
         rules.append("NOT_IN_THE_PAST")
 
 
-    check = windows.is_execution_allowed(candidate)
+    # Scoped to the rail. NPCI's bands govern UPI Autopay, so a card retry is
+    # not moved and no violation is recorded against it — the audit trail should
+    # not say a rule fired when the rule did not apply.
+    check = windows.is_execution_allowed(candidate, method=method)
     if not check.allowed:
         rules.append(f"{check.code}:{check.reason}")
-        candidate = windows.next_allowed_execution(candidate)
+        candidate = windows.next_allowed_execution(candidate, method=method)
 
     return ScheduleDecision(
         scheduled_for=candidate,

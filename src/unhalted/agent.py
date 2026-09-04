@@ -21,7 +21,7 @@ from unhalted.models import (
     ParsedReply,
 )
 from unhalted.shell import ladder, limits, replies, stops, verify, windows
-from unhalted.shell.scheduler import backoff_for, schedule_retry
+from unhalted.shell.scheduler import ScheduleDecision, backoff_for, schedule_retry
 from unhalted.store import Store
 
 #: Classes a silent retry can plausibly fix. Anything else needs a different rung.
@@ -40,14 +40,25 @@ def handle_failure(
 ) -> Case:
     """Take one failed debit from signal to scheduled next action."""
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
-    case = store.open_case(signal)
+    case, _ = store.open_case_or_get(signal)
+
+    # Whether this signal has actually been worked, not whether this call
+    # happened to be the one that inserted the case row. The two used to be
+    # treated as the same thing via `open_case_or_get`'s own `created` flag,
+    # but `ingest/webhooks.py` calls `open_case()` first, for durability,
+    # before ever calling this function — so from here, `created` reads False
+    # on *every* webhook, including a payment's genuine first-ever delivery.
+    # A diagnosis existing is the one signal that's true regardless of which
+    # caller happened to create the row: nobody has diagnosed this case yet
+    # means nothing has actually been decided about it yet.
+    already_processed = store.latest_diagnosis(case.id) is not None
 
     store.record(
         AuditRecord(
             case_id=case.id,
             at=now,
             decision_type="ingest",
-            action="case-opened",
+            action="signal already known; case is open" if already_processed else "case-opened",
             inputs={
                 "payment_id": signal.payment_id,
                 "error_reason": signal.error_reason,
@@ -59,6 +70,19 @@ def handle_failure(
             outcome=case.id,
         )
     )
+
+    # A signal already diagnosed stops here. This used to fall through into
+    # diagnosing and scheduling again on every redelivery — harmless for the
+    # diagnosis itself (a redelivered payload classifies identically), not
+    # harmless for scheduling: a second `schedule_action("retry", ...)` for a
+    # case that already has one is a second scheduled debit for a failure
+    # that happened once. Found by sending one payment through the real
+    # webhook endpoint under two event ids — exactly the redelivery
+    # `test_the_same_payment_arriving_under_a_new_event_id_reuses_the_case`
+    # exists to guard against, which checked case *count*, not action count,
+    # and two pending retries passed it silently.
+    if already_processed:
+        return case
 
     # Before classifying, ask whether this is even a failure. Razorpay documents
     # a capture following a failure on the same transaction, and retrying such a
@@ -199,7 +223,9 @@ def handle_failure(
     # Backoff is the scheduler's business, not the loop's — it is a timing
     # policy and belongs beside the window rules that constrain it.
     wait = backoff_for(diagnosis.klass, case.retry_count)
-    decision = schedule_retry(now + wait, retry_count=case.retry_count, now=now)
+    decision = schedule_retry(
+        now + wait, retry_count=case.retry_count, now=now, method=signal.method
+    )
 
     # Recorded as pending work, not only as a line in the audit trail. A
     # scheduled retry that nothing tracks is one a stop rule cannot cancel: a
@@ -321,6 +347,10 @@ def handle_reply(
                 "sentiment": parsed.sentiment.value,
                 "date_proposed": parsed.payment_date_raw,
                 "attempts": parsed.attempts,
+                # What this reading cost, from the provider's own figure. On the
+                # audit record because a decision's price belongs beside the
+                # decision, not in a report that has to reconstruct it.
+                "cost_usd": round(parsed.cost_usd, 6),
             },
             rules_fired=outcome.rules_fired,
             rule_version=outcome.rule_version,
@@ -362,8 +392,26 @@ def handle_reply(
 
     if outcome.realign_to:
         store.cancel_pending("REALIGNED", case_id=case.id)
-        target = datetime.combine(outcome.realign_to, now.timetz())
-        decision = schedule_retry(target, retry_count=case.retry_count, now=now)
+        # The promise is a day, not an instant — `validate_date` deliberately
+        # strips time of day, because "the 2nd" doesn't carry one and a model
+        # asked to invent one would be fabricating what the customer said.
+        # Combining with `now`'s clock time instead of a stated default meant
+        # a promise made at 21:24 landed at 21:24 the next day — "24 hours
+        # from now", not "tomorrow morning" as replied. Contact hours already
+        # define the day's start for exactly this reason; reuse it rather
+        # than the instant the reply happened to arrive.
+        target = datetime.combine(outcome.realign_to, windows.CONTACT_OPEN, tzinfo=windows.IST)
+        # The method comes from the case's own signal, exactly as it does on the
+        # first schedule. Omitting it here treated a realigned card retry as
+        # governed by NPCI's UPI bands while the original was not — the same
+        # case banded on one path and unbanded on the other.
+        signals = store.signals(case.id)
+        decision = schedule_retry(
+            target,
+            retry_count=case.retry_count,
+            now=now,
+            method=signals[0].method if signals else None,
+        )
         if decision.scheduled_for:
             store.schedule_action(
                 case.id, case.customer_ref, "retry", decision.scheduled_for, now
@@ -455,3 +503,44 @@ def _verify(
         )
     )
     return False
+
+
+def resume_after_review(
+    store: Store, case: Case, *, now: datetime | None = None
+) -> ScheduleDecision:
+    """Re-arm a retry once a person clears what held the case.
+
+    Approving or reclassifying a held case says recovery may proceed; nothing
+    else made that true. Without this, a reviewer's decision only flipped the
+    case's state — it sat OPEN with no pending action, waiting on the customer
+    to write in again rather than on the retry a person just cleared it for.
+
+    This honours "now" the way a realignment does, rather than adding a
+    backoff on top of one already served waiting for a person: the review
+    itself was the wait. NPCI's bands and the retry cap still apply exactly as
+    they do everywhere else — a case that had already exhausted its cycle
+    before being held is refused here too, not silently re-armed.
+    """
+    now = windows.as_ist(now or datetime.now(tz=windows.IST))
+    signals = store.signals(case.id)
+    decision = schedule_retry(
+        now, retry_count=case.retry_count, now=now,
+        method=signals[0].method if signals else None,
+    )
+    if decision.scheduled_for:
+        store.schedule_action(case.id, case.customer_ref, "retry", decision.scheduled_for, now)
+    store.record(
+        AuditRecord(
+            case_id=case.id,
+            at=now,
+            decision_type="schedule",
+            action=(
+                f"retry re-armed after review to {decision.scheduled_for:%Y-%m-%d %H:%M %Z}"
+                if decision.scheduled_for else "re-arm after review refused"
+            ),
+            rules_fired=decision.rules_fired,
+            rule_version=decision.rule_version,
+            outcome=decision.reason,
+        )
+    )
+    return decision

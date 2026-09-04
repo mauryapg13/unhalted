@@ -2,229 +2,295 @@
 
 ## [Unreleased]
 
-### Fixed
-- Recorded, not yet fixed: an exploratory pass against the live endpoint and the real Razorpay
-  account found five defects the suite does not cover — reply truncation at `max_tokens` (#22),
-  confidence rising when the payment method is unknown (#23), currency recorded and never read
-  (#24), unvalidated evidence spans (#25), and inference spend that no code path can report (#26).
-  `BREAKAGE.md` carries the first, which also corrects an earlier entry's conclusion.
-
 ### Added
-- `unhalted compare <id>` — the same case under both policies, side by side. The agent's column is
-  read off the audit trail and Razorpay's is `measure/baseline.py` replaying their documented
-  T+1/T+2/T+3 behaviour, both anchored to the moment the failure arrived. On an expired card the
-  baseline spends three debits that provably cannot work, all three inside an NPCI restricted band,
-  and the agent spends none.
-- Neither column claims a recovery. The comparison stops where the batch report's part one stops,
-  for the same reason: an outcome model decides the comparison, so there isn't one.
-
-### Fixed
-- The customer terminal, the reviewer terminal and the CLI now read one database. Two of them
-  hardcoded `session.db` while the CLI defaulted to `unhalted.db`, so a reviewer could open the
-  queue and correctly see nothing while a case sat held in the other file. All three take
-  `UNHALTED_DB` now.
+- `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
+  threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
+  confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
+  used to hardcode one of these (`windows.py`, `scheduler.py`, `models.py`, `replies.py`,
+  `ladder.py`, `limits.py`) now reads it from here, mapping the plain string/number keys onto its
+  own domain types itself — `unhalted.policy` never had to learn what a `DiagnosisClass` or a
+  `Rung` is. Migrated one module at a time, full suite run after each, so every value is confirmed
+  identical to what was previously hardcoded rather than assumed to be. A change to the file is
+  live the next process restart, confirmed directly: setting `retries.cap` to 1 in a copy of the
+  file and pointing `UNHALTED_POLICY` at it drops `scheduler.RETRY_CAP` to 1, no code change.
+  Exists because the same NPCI-band concept was already duplicated, and wrongly diverged, across
+  three separate code paths in this project (see `BREAKAGE.md`) — one file, loaded once, is the
+  fix for that entire bug class, not only the specific instances of it found so far.
+- `scripts/propose_policy_change.py` and `core/policy_change.py` — reads free text describing a
+  regulatory change and proposes a field-level diff against `config/policy.yaml`. Same distance
+  between recommending and acting as everywhere else the model touches something that matters: it
+  never writes to the file, a proposed field outside a fixed closed set is refused before being
+  shown, and a proposed value's quote is checked against the actual input text (reusing the same
+  evidence check reply parsing already used, now shared via `core/evidence.py`). Backoff tiers,
+  confidence thresholds and reply-policy thresholds are deliberately not proposable — those are
+  this project's own risk tolerance, not something a circular states. Smoke-tested live against a
+  real NPCI-circular-shaped text: correctly proposed an exact band change, correctly declined to
+  guess at a vaguely-worded mention, correctly treated "unchanged" as nothing to propose.
 
 ### Changed
-- The batch report counts **model calls**, not only inference spend. `Rs 0.00` beside no other
-  figure reads as unmeasured; `0 of 300 diagnoses required a model call` reads as the measurement
-  it is, and it is the 85% claim appearing as a count. The report also states that the figure
-  covers diagnosis alone, since a generated batch has no customer replies to parse, and gives the
-  measured per-parse cost so nobody concludes the model is free. Closes #16.
+- The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
+  one) that justify it. It's the number everyone asks for first; the reordering says so in its own
+  first line, and the counted section it depends on follows immediately after rather than
+  fifteen screens later.
 
-- The report explains why no case was closed as uneconomic instead of leaving a bare zero. The
-  provable half of the expected-value gate cannot fire at an entry rung — the dearest entry is
-  re-authorisation at ₹2 against a cheapest stake of ₹49 — and becomes reachable only on
-  escalation, which this batch cannot simulate without the outcome model the whole report refuses
-  to write. The gate is exercised by its own tests, not by the batch, and the demo no longer leans
-  on it. Closes #15.
-
-- The README's results table carries measured numbers, and its measurement section no longer
-  promises a lift figure derived from the holdout. Rupees recovered is stated as modelled
-  everywhere it appears. Closes #10.
-
-- The confidence thresholds in `Diagnosis.authority` now say at the point of definition that they
-  are policy rather than measurement. `0.90` and `0.70` came from the specification and nobody
-  measured them. Generated data cannot settle them — the correct class is whatever was generated —
-  so what is reported instead is how much the choice matters: 68% of cases land above 0.90, 23%
-  between, 9% below. Closes #7.
-
-- C6 (reply understanding) joins C5 and the C8 holdout in the never-cut set. With 85% of documented
-  failures resolving deterministically, reply parsing is where a model is irreplaceable, so cutting
-  it would remove the answer to what the AI does. The diagnosis model seam is recorded against C6,
-  where the plumbing is written anyway, and human-queue preparation against C7.
+### Fixed
+- A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
+  and scheduling on whether *this call* had just created the case row, which is a different
+  question from whether the signal had actually been worked — `ingest/webhooks.py` creates that
+  row itself, for durability, before it ever calls `handle_failure`, so the row already existed on
+  every delivery including a payment's genuine first one. One payment under two event ids produced
+  two scheduled debits for a failure that happened once; the same first delivery was also
+  mislabelled "signal already known" in the audit trail, the opposite of what an earlier pass fixed
+  that wording to prevent. Both now key off whether a diagnosis has actually been recorded for the
+  case, which is true regardless of which caller created its row first. Found building
+  `scripts/inject.py`, reproduced directly against the real webhook endpoint.
 
 ### Added
-- `unhalted` on the command line: `case` prints one case end to end with the rules that fired and
-  the taxonomy version that produced the diagnosis, `cases` and `queue` list what is open and what
-  is waiting on a person, `report` prints the batch measurement, and `capabilities` reports what
-  this deployment cannot do as well as what it can.
-- Decisions are logged as they happen, not only reconstructable afterwards. Every decision passes
-  through one place, so that is where the log line is written.
+- `scripts/inject.py` and `scripts/classify.py` share `core/scenarios.py` — the same five
+  documented card reasons, once, rather than two lists that could quietly disagree.
+- `scripts/inject.py` — runs one of those five scenarios through the real pipeline: a real case,
+  a real recorded diagnosis, a real scheduled action, visible in the reviewer and scheduler
+  terminals exactly as any other case would be. Explicitly not a webhook, and says so on every run
+  — `scripts/classify.py` shows what the rule table *would* say without a case to show it on;
+  this is the other half, for showing several different real, audited cases without waiting on
+  `docs/capturing-fixtures.md`'s real capture procedure for each one. Run it with no argument, or
+  `--list`, for a numbered menu rather than needing the exact reason string typed out.
+- `scripts/classify.py` — what the taxonomy says for five of Razorpay's own documented card
+  error scenarios (`docs/capturing-fixtures.md`'s test-card table), called directly against
+  `diagnose()`. Not a payment and not a case: the three fixtures actually captured on this account
+  all carry the same reason, which is why every rehearsal has landed on the same class so far. Two
+  of the five reach full confidence and auto-execute; the captured ones sit at 0.80.
+- A nudge now carries a real, payable Razorpay Payment Link instead of asking the customer to
+  reply. The escalation ladder already priced this — rung 2 is "message with a pay link", rung 3 is
+  "re-authorisation link" — but no code generated one; a customer whose card had expired had nothing
+  to do but wait on a retry that could not succeed. `shell/paylink.py` calls Razorpay's documented
+  `POST /v1/payment_links` (verified against `api/payments/payment-links/create-standard.md`, not
+  assumed) with `notify` both off, since we deliver the message ourselves. A link that fails to
+  generate — no key configured, Razorpay refuses, the network is down — does not hold the nudge; it
+  goes out without one, logged, not raised. The network call itself is deferred until after the
+  contact-hours check, so a nudge already known to be deferred does not spend one for nothing.
+  `nudge_body` is now shared between the customer terminal and the runner, replacing two
+  independently hand-rolled message strings that had already drifted apart.
 
 ### Fixed
-- A scheduled retry is now recorded as pending work rather than only as a line in the audit trail.
-  It was not cancellable, so a customer who revoked their mandate would have been charged anyway.
-  Found by the CLI printing `pending 0` beside a scheduled retry on its first real use.
-
-- Batch measurement. 300 generated failures drawn from Razorpay's published error taxonomy, run
-  through both the agent and Razorpay's own documented behaviour — three automatic retries on
-  consecutive days, no diagnosis, no contact. The report is split so a reader cannot confuse the
-  two halves: what each policy *does* is counted and needs no assumption, and the rupee figure is
-  modelled and shown as a range across success rates with the rates printed beside it.
-- The counted half over 300 cases: the baseline schedules 900 debit attempts to the agent's 217,
-  spends 108 of them on failures a retry provably cannot fix where the agent spends none, and
-  lands 315 inside NPCI's restricted bands where the agent lands none.
-- The confidence-band distribution, which is as far as issue #7 can be answered here: 9% of cases
-  fall below 0.70, so the threshold governs about one case in eleven rather than the system.
-
-- The escalation ladder, entered at the rung the diagnosis warrants rather than always at the
-  bottom. A broken mandate skips silent retries entirely, because no number of them fixes an
-  expired card and the attempts would spend NPCI's allowance proving what is already known.
-- An expected-value gate split by what it can honestly claim. The success rates it uses for the marginal half are merchant policy rather than estimates anyone made — this project cannot measure them, and a decision resting on the conservative default records it as unmeasured.
-  A rung costing more than the whole amount at stake is refused with no assumption at all — a
-  probability cannot exceed 1.
-- Compliance lint. This project offers nothing, so any offer in a draft was invented: offer
-  language and **any percentage** are blocked, along with threats, manufactured urgency and
-  commitments the agent cannot make. A message must carry the amount, the merchant, and a way to
-  stop.
-- Drafting with one correction. A blocked draft is regenerated once with the violation quoted
-  back; a model that invents twice gets no third chance and the plain fallback is sent instead.
-- Human-queue briefing. The model reads a held case and states what it thinks with what it
-  weighed, so a reviewer decides in thirty seconds rather than two minutes. It is labelled as the
-  agent's opinion, and a reviewer without one still has the full record.
-
-- Diagnosis can now decline to decide. Where Razorpay documents that a failure might not be one —
-  a `payment.failed` followed by a capture on the same transaction, when the customer retries in
-  their own UPI app — the agent verifies whether the order was already paid before scheduling
-  anything. A paid order closes as a false failure and is reported separately from recoveries,
-  because that money was never lost. A check that cannot be performed holds the case: not-checked
-  is not the same as not-paid, and assuming otherwise is how somebody gets charged twice.
-
-- Reply understanding. `core/reply.py` reads free text into a closed set of intents with an
-  evidence span quoting the words that justify each, and `shell/replies.py` decides what that
-  changes — precedence and thresholds live there because both are policy. The thresholds are
-  deliberately asymmetric: 0.50 for protective intents, 0.70 for anything that moves money, 0.85
-  before acting on a cancellation, because missing an opt-out and inventing a cancellation cost
-  very different things.
-- `agent.handle_reply` takes a reply from words to consequence and records all of it. Nothing
-  automated may remain scheduled on a case a person now owns — a customer who asks to cancel must
-  not be charged while somebody actions it.
-- A labelled corpus of 68 replies, 13 verbatim from the specification, with
-  `scripts/evaluate_replies.py` reporting precision and recall per intent **including the
-  failures**, and separating reliability from accuracy so an endpoint fault is not read as the
-  model misreading.
-- `scripts/session.py` and `scripts/review.py`: a terminal for the customer and a terminal for the
-  reviewer, sharing a database. Held cases reach the queue, nothing expires into a yes, and every
-  human decision is attributed by name.
-- `shell/notify.py`, the notifier seam. Contact hours gate above the transport, so a console and a
-  phone are governed identically.
-
-### Fixed
-- Disputes and chargebacks now hold the case for a human. Halting without holding abandons the
-  case silently: the customer's claim about their money never gets answered.
-- Cases are durable before anything is done with them. The store uses write-ahead logging, commits
-  fsync before returning, and the webhook persists the signal before diagnosis — Razorpay retries
-  anything slow, and a process that dies mid-diagnosis should not depend on that retry arriving.
-
-- A third real captured payment, and the finding that produced it: Razorpay's error-scenario cards
-  do not yield their documented reasons on this account through either checkout surface. Tested on
-  the hosted payment-link page and on Standard Checkout, the widget the cards are documented for.
-  Both return a generic `payment_failed` / `gateway`. The card taxonomy therefore remains
-  capability complete and verification narrow, which `PROVENANCE.md` states plainly.
-
-- The nine stop rules from the specification, each with its code, scope, SLA and a stated reason
-  for existing. A stop cancels every pending action in scope inside one transaction, so a
-  revocation arriving while a retry, two nudges and a voice callback are pending cancels all four
-  together with no partial execution possible.
-- Monetary ceilings with the consequences Razorpay documents, which differ by method: a card above
-  ₹15,000 *fails*, so attempting it wastes an NPCI retry, while UPI above the frictionless limit
-  *waits for the customer to authorise that debit* — a different recovery path, not a failure. The
-  mandate's own `max_amount` is checked first, because consent outranks feasibility.
-- Retry backoff per diagnosis class — thirty minutes then two then six hours for technical
-  failures, a day for balance failures, twenty-five hours for a notification gap. Applied by the
-  caller rather than inside `schedule_retry`, so a retry realigned to a date the customer named
-  lands on that date instead of six hours after it.
-
-### Fixed
-- The monetary ceilings are now enforced in the agent's path rather than only in their own tests.
-  `shell/limits.py` had twelve passing tests and no caller, so a debit above the card ceiling or
-  above the mandate's own `max_amount` would have been scheduled anyway.
-
-- Technical failures were scheduled for the same instant they failed, retrying into the same
-  outage and burning one of the three attempts NPCI allows.
+- Approving or reclassifying a held case did not resume anything. `record_decision` only flipped
+  the case's state; nothing scheduled the retry it had been blocking, so an approved case sat
+  `OPEN` with no pending action until the customer happened to write in again. `resume_after_review`
+  now re-arms it through the same NPCI-banded, cap-checked `schedule_retry` path every other retry
+  uses — honouring "now" the way a realignment does, since the review itself was the wait, not a
+  reason to add a further backoff on top of it. A case that had already exhausted its retry cycle
+  before being held is refused here too, not silently re-armed.
+- The scheduler terminal never showed what a reviewer decided. It filtered the audit trail down to
+  `decision_type == "execution"` only, so `record_decision`'s "human-review" records — approved,
+  rejected, reclassified, and by whom — were silently dropped; the log stopped at the cancellation
+  that sent a case to a person and never said what the person then did about it. Found by watching
+  it live: a case moved to review, a decision was made, and nothing in the scheduler's own terminal
+  changed. The scanning logic is now `audit_lines`, its own function, tested directly rather than
+  only through the poll loop it used to live inside.
+- A promise realigned to a future day landed at whatever clock time the reply happened to arrive,
+  not at the start of that day. "Tomorrow morning" replied to at 21:24 scheduled the retry for
+  21:24 the next day — 24 hours out regardless of what "morning" meant. `validate_date` correctly
+  reduces a promise to a day with no time of day of its own; realignment now combines it with the
+  start of contact hours (08:00 IST) instead of `now`'s clock reading, matching how the codebase
+  already answers "what time does a day begin" everywhere else. Caught live during a rehearsal.
 
 ### Added
-- Real captured payments in `tests/fixtures/razorpay/captured/`, each recording its payment id and
-  capture date, with seven tests running the pipeline against them. `scripts/capture_fixtures.py`
-  captures them and `docs/capturing-fixtures.md` documents the procedure.
+- `test_two_different_payments_open_two_different_cases` — the real webhook endpoint, not the
+  demo script, was where the bug below could have mattered. It doesn't: `grep`ing `src/unhalted`
+  for anything resembling the demo's "read a fixed pool of files" pattern turns up nothing, and
+  `/webhooks/razorpay` opens a case from whatever payload Razorpay actually posts, never from a
+  local selection. This locks that in rather than leaving it argued.
 
 ### Fixed
-- The service now loads `.env`. It never did — preflight parsed the file itself and the demo passed
-  variables inline, so the only caller that mattered in production had no way to read its own
-  webhook secret and refused every delivery Razorpay made.
+- `scripts/session.py` no longer replays the same case forever. `real_signal` always read the
+  alphabetically first captured fixture, so a database that already held a case for it matched
+  straight back to that case on every later run — correctly, but it meant the three fixtures'
+  three distinct real payments were never actually reached. It now walks the fixtures for the
+  first `payment_id` the database has no case for, so running the script again gives the next
+  real case rather than the same one, and only replays once every fixture has been used.
+- `test_a_truncated_response_is_not_retried` passed only where a real API key happened to be on
+  disk. `_call_model` returns before its mocked `httpx.post` is reached when
+  `config.model_api_key()` is empty, which it always is in CI — the test now sets a fake key
+  itself rather than depending on `.env`.
+- The reviewer's decision no longer waits on the model. `show_case` called `brief()` — a live
+  request, up to 60 seconds — before the approve/reject/reclassify prompt could even appear, and a
+  silent multi-second wait with no indication anything was happening read as a hang rather than a
+  wait. Found on a real run: 19 seconds of silence with the terminal apparently stuck. The raw
+  material a reviewer decides from — signals, diagnosis, why it stopped — now prints and prompts
+  immediately, with no model call at all. The model's read is a new `i`nsight option, fetched only
+  if asked for, with a visible "thinking" line before the call so a wait reads as a wait.
 
 ### Added
-- The diagnosis taxonomy's facts are now generated from Razorpay's error references and pinned to
-  a commit of `razorpay/markdown-docs`, so `taxonomy_version` identifies the exact documentation
-  a classification came from. `scripts/build_taxonomy.py` builds it and `--check` fails when their
-  docs have moved; a CI job runs that check.
-- Confidence is derived rather than chosen: the documented root-cause count caps it at `1/n`, a
-  concrete `error_source` lifts the cap by selecting one cause, and a second factor records whether
-  Razorpay's own description states the class or we inferred it. The audit reasoning names the
-  causes it weighed, so it can be checked against their documentation.
-- `method` joins the taxonomy key. Ambiguity is method-specific — `payment_timed_out` has one
-  documented cause on cards and two on UPI — so the same reason yields 0.8 on a card and 0.4 on
-  UPI, and only the second falls below the threshold for autonomous action.
-- All 26 documented card and UPI error reasons are accounted for: 25 mapped to a recovery class,
-  and `payment_risk_check_failed` deliberately held, because a bank calling a payment fraudulent
-  has no appropriate automated response.
-- Live API tests (`pytest -m live`) that hit the real Razorpay test-mode API and assert the field
-  names and shapes the pipeline depends on. Excluded by default so CI needs no credentials; they
-  refuse to run against anything but a test key. They caught, on their first run, that the
-  Subscriptions API had become entitled after being 401 all morning.
-- `scripts/demo.sh` drives a failed payment through the running service end to end: a forged
-  webhook rejected, a real signed one accepted, a redelivery recognised, and the case timeline
-  printed. It posts to the same endpoints Razorpay posts to rather than taking a demo-only path.
-- A missing changelog entry now blocks rather than warns: a `commit-msg` hook locally, and a CI
-  job on pull requests that `--no-verify` cannot bypass. Commits that genuinely need no entry
-  say `[skip changelog]` in the message, in the open.
-- Gherkin specification split into executable feature files under `tests/features/`, wired to
-  `pytest-bdd` and run in CI.
-- Project skeleton: packaging, CI workflow, README, licence, breakage log.
-- Walking skeleton of the pipeline: normalised `FailureSignal`, SQLite case store with an
-  append-only audit table, the diagnosis taxonomy keyed on Razorpay's `error_reason`,
-  `error_source` and `error_step`, NPCI execution windows and contact hours, the retry
-  scheduler, and the control loop that takes one failure from signal to scheduled action.
-- Workflow enforcement: a git pre-commit hook refusing commits on `main`, a Claude Code
-  `PreToolUse` guard, and `CLAUDE.md` stating the working agreement.
-- Webhook ingest: `POST /webhooks/razorpay` verifying the `X-Razorpay-Signature` HMAC over the
-  raw request body, and `GET /cases/{id}` returning a case timeline. A `payment.failed` event
-  now runs end to end — case opened, diagnosed, retry scheduled inside a permitted NPCI window,
-  every decision audited.
-- Idempotent delivery, keyed on the `x-razorpay-event-id` header Razorpay prescribes. Redelivery
-  is documented as expected behaviour, and a second case for one failure would count the same
-  rupees twice.
-- Two documented failure reasons added to the taxonomy: `payment_failed` from `bank` and from
-  `issuer` at authorisation classify as recoverable-technical — a bank-side failure implies no
-  customer action, so it is worth a silent retry and not worth a message.
-- Test fixtures sourced from Razorpay's published webhook documentation, with provenance
-  recorded. Real captures replace them at C4.
-- Razorpay's official MCP server wired for development use, launched through a script that reads
-  credentials from `.env` at run time and refuses to start on anything but a test key.
+- `scripts/schedule.py` — the scheduler's terminal. Every action as it is scheduled, comes due,
+  executes, is deferred or is cancelled, as an append-only log rather than a redrawing table:
+  the argument this view exists to make is about *sequence* — a charge was scheduled, then the
+  customer said stop, then the charge did not happen — and a log lets a viewer read back up the
+  screen and see the order for themselves. `--run` makes it the worker as well as the watcher,
+  calling the same `run_due` the CLI and the HTTP endpoint call.
+- `src/unhalted/tui.py` — terminal formatting in one place. Three views of one system had three
+  copies of the same escape codes, which is how they end up looking like three systems. Everything
+  degrades to plain text off a terminal, so piping a view into a file gives output rather than
+  escape sequences.
+- `Store.actions(state=...)` reads scheduled actions in any state. `pending_actions` cannot return
+  a cancelled row, and a cancellation is exactly what the scheduler view needs to show.
+
+### Changed
+- The reviewer's terminal stays open. It exited the moment the queue was empty, which meant it was
+  never running when a case arrived. It now polls, redraws, announces what appeared with a `NEW`
+  marker, and closes only when the reviewer says so — using `select` rather than a thread, so the
+  reviewer can sit and watch *and* act without the read blocking either.
+- All three terminals carry a banner naming which view they are, and share one set of rules,
+  chips, tables and relative times ("in 16h 05m" rather than a timestamp a viewer has to subtract).
 
 ### Fixed
-- The diagnosis table's confidence values are documented as provisional policy floors rather
-  than measured estimates, at the point of definition. A deterministic lookup does not have
-  confidence the way a model does; the numbers encode how much autonomy a mapping has earned.
-  C8 replaces them with observed rates.
-- Store access is serialised behind a re-entrant lock, and `open_case` holds it across the whole
-  check-then-act. One sqlite3 connection was shared across FastAPI's threadpool with the
-  thread-safety check disabled, so concurrent webhooks could commit each other's half-written
-  rows — and even with the lock, two threads could both read "no such case" and race to insert
-  the same payment. The unique index on `signals.payment_id` is the cross-process backstop.
-- NPCI restricted execution windows corrected to both bands, `10:00-13:00` and `17:00-21:30` IST.
-  The spec previously named only the first, which would have permitted an evening retry that NPCI
-  forbids.
-- Retry-after-alert interval corrected from 24 to 25 hours, matching Razorpay's documented
-  initiation gap. The 24-hour figure is the RBI notification requirement; 25 hours is when the
-  charge actually initiates.
+- `--db` and `--at` work after a subcommand as well as before it. argparse puts an option on the
+  parser it was declared against, so `unhalted --at X run-due` was correct and `unhalted run-due
+  --at X` was an error — a distinction nobody should have to learn, and one I walked into a minute
+  after adding the flag. Every subcommand now takes them too, with `SUPPRESS` as the default so an
+  absent flag does not overwrite what the top-level parser already read.
+- A database deleted while its write-ahead log survived now says so, and names the files to remove.
+  In WAL mode SQLite keeps `-wal` and `-shm` beside the database, and `rm unhalted.db` leaves them;
+  the next open failed with a bare `disk I/O error`. Resetting by hand is exactly what somebody does
+  before a demo, so the message carries the remedy and the CLI prints it rather than a traceback.
+- The audit trail no longer records "case-opened" for a case that was already open. Razorpay
+  redelivers, and re-running the session script sends the same payment again — both correctly match
+  the existing case, and recording an opening for either made the trail assert an event that never
+  happened. `Store.open_case_or_get` reports novelty from inside the lock that decides it.
+
+### Added
+- `--at 'YYYY-MM-DD HH:MM'` on `unhalted run-due` and `scripts/session.py`, so the window rules can
+  be rehearsed at any hour rather than only inside one. The library already took `now` everywhere —
+  333 tests depend on it — and the scripts did not, which meant a run sheet could be tested at 3am
+  and a rehearsal could not. Nothing about behaviour changes; only the instant the same rules are
+  evaluated against.
+- An override announces itself on stdout, where a recording would capture it. The risk was never the
+  capability, it was using it silently and letting a stated time pass for a real one, so the safety
+  is visibility rather than absence.
+
+### Fixed
+- A retry realigned by a promise-to-pay did not carry the payment method, so the same card case was
+  unbanded when first scheduled and banded when realigned — moved for a UPI Autopay rule that does
+  not reach cards, and recorded as a `WINDOW_VIOLATION` that never happened. The #30 fix threaded the
+  method through one of the two `schedule_retry` callers and missed the other. Found while rehearsing
+  against a forced clock.
+
+### Fixed
+- The action lease claimed and read in two statements, joined by `(worker, leased_until)` — a key
+  that is not unique. A worker claiming twice inside one lease window re-read its earlier batch, and
+  two workers with agreeing clocks collided. Four processes over 400 actions produced **386
+  double-claims**, each of which would have been a debit attempted twice. Claim and read are now one
+  `UPDATE ... RETURNING`, so there is no key to get wrong.
+- `PRAGMA busy_timeout = 5000`. SQLite fails a locked write immediately by default; with more than
+  one worker a claim will sometimes arrive while another holds the write lock, and returning
+  `SQLITE_BUSY` to the caller would turn ordinary contention into a failed recovery action.
+- `tests/test_store_concurrency.py` now runs real subprocesses for this. Threads share the test
+  process's `Store` and its lock, so they cannot demonstrate what two deployed workers would do.
+
+### Added
+- A runner. `pending_actions` had three writers and nothing that executed one, so a retry scheduled
+  for 13:00 was a row recording an intention and 13:00 arrived and nothing happened. `unhalted
+  run-due` and `POST /internal/run-due` now execute what has come due — the same function behind a
+  command, an HTTP request an external scheduler can post to, or a person typing it, so the
+  deployment shape stays an open question.
+- Actions are claimed under a **lease**, not a lock. Claim and read are one transaction, because
+  selecting first and updating after is how the same retry reaches two workers. A lease expires, so
+  a worker that dies mid-action does not strand its rows — they return to `pending` and are tried
+  again. Delivery is at-least-once and the executors have to be safe under repetition, which is the
+  discipline the ingest side already applies to Razorpay's redelivery.
+- Cancellation reaches leased rows and the runner re-reads state immediately before it acts, so a
+  customer revoking while a worker holds the lease still stops the charge.
+- Every execution is written to the audit trail beside the decision that caused it, carrying the
+  worker's name — a decision recorded without its execution is half an account.
+- **The debit adapter is absent, and says so.** Initiating a charge needs a live mandate token and
+  this account cannot register one for UPI. `retry` refuses, records why, and routes the case to a
+  person rather than reporting a success nobody performed. See #31.
+
+### Fixed
+- `run_due` treated an empty executor mapping as a request for the defaults, because `executors or
+  EXECUTORS` cannot tell "none registered" from "none supplied". Found by the test for it.
+
+### Fixed
+- NPCI's execution bands are applied only to the rail they govern. `windows.py` opened by saying the
+  restriction is on **UPI Autopay** while the code applied it to every method, so card retries were
+  delayed for a regulation that does not reach them — and, worse, `WINDOW_VIOLATION` was written to
+  the audit trail for violations that never happened. The audit trail is the one account of events
+  this project asks anyone to trust; a rule recorded as fired when it did not apply is the kind of
+  thing that discredits everything beside it. `is_execution_allowed` and `next_allowed_execution`
+  now take a method, `schedule_retry` threads it through, and an unknown method keeps the
+  conservative reading: a card delayed wrongly costs hours, a UPI debit inside a band is a breach.
+  Closes #30.
+
+### Added
+- The drift check against Razorpay's documentation can be run on demand, via `workflow_dispatch`,
+  as well as on every push and pull request. That is the trigger that matches how the rule actually
+  changes: somebody reads that a circular has landed and comes to check.
+- An unattended daily schedule sits in `ci.yml`, written and commented out, with the conditions for
+  switching it on. It is the right trigger for a running service and the wrong one for a repository
+  that will be quiet between bursts of work — GitHub disables scheduled workflows after sixty days
+  of inactivity, and a daily run nobody watches decays into a red badge that means nothing. Recorded
+  as a decision rather than left as a gap.
+
+### Added
+- `unhalted breakeven` and `measure/outcomes.py` — the money argument, with nothing in it that is a
+  forecast. Money is sorted by what each policy can *reach* using Razorpay's own error descriptions;
+  the ceilings on each policy are stated as ceilings; and the intervention's real cost is divided by
+  the money it is placed in front of to give the conversion rate below which it loses money.
+- On a mandate-heavy book of 400 cases that rate is **0.389%** — under half of one customer in 116
+  has to re-authorise before a ₹232 campaign has paid for itself, against ₹59,624 of exposure. The
+  useful property is that the unknown becomes the answer instead of an input.
+- The report names what it will not say. Rupees recovered needs real outcomes at volume; supply a
+  conversion rate and the figure is a multiplication, but the rate is then the merchant's and is
+  labelled as theirs. A published benchmark from another market is refused explicitly: card-updater
+  recovery in the US is a different mechanism from a re-authorisation needing an MPIN.
+
+### Fixed
+- The baseline is three retry models, not one. Razorpay documents UPI, cards and emandate as
+  separate tabs and they do not agree: UPI is T+1/T+2/T+3 then halted, cards are "thrice, once
+  every day for 3 days", and emandate states **no retry count at all** — the next attempt waits on
+  the previous one settling, "as it may take more than 24 hours", with bank-holiday shifting to T-1
+  or T-3. Applying the UPI model to all three was an assumption nobody had checked. The emandate
+  count is now declared as assumed via `assumption_used`, at the fastest interval their wording
+  permits, which is the reading that cannot inflate the agent's advantage.
+- NPCI's execution bands are counted only where they apply. They govern **UPI Autopay**;
+  `windows.py` said exactly that in its own docstring while the code applied them to every method,
+  so the baseline was charged with violations on rails the rule does not reach. The 300-case batch's
+  figure falls from 315 to 117, and a mandate-heavy 400-case mix from 705 to 213. The README and the
+  batch report are corrected. The agent's own scheduler still applies the bands universally, which
+  is conservative rather than correct — raised as #30 rather than changed here, because it needs to
+  be right about three rails and one of them wants a bank-holiday calendar.
+
+### Fixed
+- The taxonomy now reads Razorpay's **recurring** error tables, not only `errors/payments`. Their
+  emandate reference documents a "Subsequent Payments" section — a mandate debit failing after
+  registration, which is the exact event this product exists for — and the generator had never
+  opened it. Eight reasons had no rule, `mandate_not_active` among them. Money the system can
+  defensibly claim on a mandate-heavy book went from 17% to 26% of everything at risk, and cases
+  reaching a human fell from 29% to 14%. Closes #28.
+- `payment_failed` no longer reaches full confidence from any source. It was marked `DIRECT`,
+  meaning Razorpay's description states the class; their description says the opposite — "the exact
+  reason in this case is not communicated to Razorpay". It is the commonest reason on the account
+  and two of its sources put it in the highest autonomy band. Also keyed on `issuer_bank`, the
+  value their emandate reference actually emits, where we had guessed `issuer`. Closes #29.
+- Confidence no longer rises when the payment method is unknown. `documented_causes` fell through
+  to the method-agnostic list, which records one cause for everything because it has no method to
+  attribute to — so an unknown method scored 0.8 and auto-executed where UPI scored 0.4 and held.
+  Unknown and unmapped methods now take the worst documented count across the methods Razorpay does
+  publish a table for. Closes #23.
+- Replies carrying several intents parsed one time in three. The completion budget ran out before
+  the model emitted anything, and `finish_reason: "length"` — present on every such response, read
+  by nothing — was the cause that `BREAKAGE.md` had attributed to provider routing. `max_tokens` is
+  4000, a truncated response is reported as truncated, and it is no longer retried: at temperature 0
+  it fails identically three times and bills for each. Measured over 90 live calls, multi-intent
+  parses went 33% to 93% at half the cost per successful parse. Closes #22.
+- Evidence spans are checked against the reply. They were documented as required and defaulted to
+  the empty string, so a reviewer could be shown words the customer never wrote with the same
+  standing as a quote. Closes #25.
+- Payments in a currency other than INR are refused at ingest instead of being read as rupees.
+  Razorpay accepts non-INR orders; a USD one was created on this account while testing, and $499
+  flowed through the ceilings and the expected-value gate as Rs 499. Closes #24.
+- Inference spend is recorded. `usage.cost` was read in one health check and nowhere in the product,
+  so the report's spend line was a constant. It is now carried on `ParsedReply` and written to the
+  audit record — including for calls that returned nothing, which are billed too. Closes #26.
+- A whole-call timeout. `TIMEOUT_SECONDS` was a per-operation read timeout, and one call during
+  testing held a worker for 611 seconds under a nominal 45.
+

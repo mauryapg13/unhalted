@@ -96,3 +96,33 @@ def test_message_retry_after_hours_defers_to_next_morning() -> None:
 def test_contact_before_opening_defers_to_the_same_morning() -> None:
     got = next_allowed_contact(ist(2026, 9, 1, 6, 30))
     assert (got.date().day, got.hour) == (1, 8)
+
+
+# --- issue #30: the bands govern one rail, not three ------------------------
+
+
+@pytest.mark.parametrize("method", ["card", "emandate", "nach", "netbanking", "wallet"])
+def test_methods_outside_upi_autopay_are_not_banded(method) -> None:
+    """Cards are not NPCI-routed for recurring; emandate settles through NACH."""
+    inside = ist(2026, 9, 1, 11, 0)
+    assert is_execution_allowed(inside, method=method).allowed
+    assert next_allowed_execution(inside, method=method) == inside
+
+
+def test_upi_is_banded() -> None:
+    inside = ist(2026, 9, 1, 11, 0)
+    assert not is_execution_allowed(inside, method="upi").allowed
+
+
+def test_an_unknown_method_takes_the_delay_rather_than_the_risk() -> None:
+    """A card retry delayed wrongly costs hours. A UPI debit executed inside a
+    band is a breach. With no method to go on, take the delay."""
+    inside = ist(2026, 9, 1, 11, 0)
+    assert not is_execution_allowed(inside, method=None).allowed
+    assert not is_execution_allowed(inside).allowed
+
+
+def test_an_unbanded_method_says_why_it_was_allowed() -> None:
+    check = is_execution_allowed(ist(2026, 9, 1, 11, 0), method="card")
+    assert "not routed through UPI Autopay" in check.reason
+    assert check.code is None

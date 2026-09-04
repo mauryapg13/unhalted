@@ -152,7 +152,7 @@ def _baseline_side(
         marks = []
         if klass in baseline.FUTILE:
             marks.append(CANNOT_WORK)
-        if not windows.is_execution_allowed(at).allowed:
+        if not windows.is_execution_allowed(at, method=signal.method).allowed:
             marks.append(NPCI_BAND)
         note = f"DEBIT ATTEMPT {n}/{run.attempts}"
         if marks:

@@ -17,18 +17,18 @@ model-written, and says so.
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import pathlib
 import sys
-from datetime import datetime
 
-from unhalted import config
+from unhalted import clock, config, tui
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
-from unhalted.shell import windows
-from unhalted.shell.notify import ConsoleNotifier, Message, deliver
+from unhalted.shell import paylink, windows
+from unhalted.shell.notify import ConsoleNotifier, Message, deliver, nudge_body
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent
@@ -42,38 +42,70 @@ BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 
 
 def rule(title: str) -> None:
-    print(f"\n{BOLD}{title}{RESET}\n{DIM}{'─' * 66}{RESET}")
+    print()
+    print(tui.rule(title))
 
 
-def real_signal():
+def real_signal(store: Store):
+    """The next real captured failure this database hasn't seen yet.
+
+    Always returning `files[0]` meant every run — even against a database
+    already holding a case — replayed the same payment, so `open_case_or_get`
+    correctly matched it back to the same case and it looked like the demo
+    could only ever produce one. The three captured fixtures are three
+    distinct real payments; this walks them in order and picks the first
+    whose `payment_id` has no case yet, so running the script again gives you
+    the next one rather than the same one back.
+    """
     files = sorted(glob.glob(str(CAPTURED / "*.json")))
     if not files:
         sys.exit("no captured payments; see docs/capturing-fixtures.md")
-    payment = json.loads(pathlib.Path(files[0]).read_text())["payment"]
+    unseen = None
+    for f in files:
+        payment = json.loads(pathlib.Path(f).read_text())["payment"]
+        if store.case_for_payment(payment["id"]) is None:
+            unseen = payment
+            break
+    if unseen is None:
+        payment = json.loads(pathlib.Path(files[-1]).read_text())["payment"]
+        print(f"  {DIM}every captured payment already has a case in this database; "
+              f"replaying {payment['id']}{RESET}")
+    else:
+        payment = unseen
     return from_payment_failed(
         {"event": "payment.failed", "payload": {"payment": {"entity": payment}},
          "created_at": payment.get("created_at")}
     )
 
 
-def nudge_body(amount_rupees: float, when: str) -> str:
-    """A plain factual message. C7 replaces this with drafted, linted copy."""
-    return (
-        f"Hi — your {MERCHANT} payment of Rs {amount_rupees:.0f} didn't go through.\n"
-        f"We'll try again on {when}. Reply here if that doesn't suit.\n"
-        f"Reply STOP to opt out of these messages."
-    )
-
-
 def main() -> int:
     # A file, not memory, so `scripts/review.py` in another terminal sees the
     # same cases. The human queue is not a view onto a copy.
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--at",
+        metavar="'YYYY-MM-DD HH:MM'",
+        help="rehearse against this time (IST) rather than now. Announces itself.",
+    )
+    args = ap.parse_args()
+    try:
+        stated, note = clock.resolve(args.at)
+    except clock.BadTime as exc:
+        sys.exit(str(exc))
+
+    print(tui.banner(
+        "CUSTOMER — the recovery conversation",
+        f"{MERCHANT} · a real captured Razorpay failure · type a reply, Ctrl-D to finish",
+    ))
+
     store = Store(str(SESSION_DB))
     notifier = ConsoleNotifier()
-    now = windows.as_ist(datetime.now(tz=windows.IST))
+    now = windows.as_ist(stated)
+    if note:
+        print(note)
     today = now.date()
 
-    signal = real_signal()
+    signal = real_signal(store)
 
     rule("1. A real payment failure arrives")
     print(f"  payment  {signal.payment_id}   Rs {signal.amount_rupees:.0f}   {signal.method}")
@@ -100,9 +132,18 @@ def main() -> int:
     )
 
     rule("3. The agent contacts the customer")
+    link = paylink.create_payment_link(
+        amount_paise=signal.amount_paise, description=f"payment retry for {case.id}",
+    )
+    if link:
+        print(f"  {DIM}pay link generated: {link.url}{RESET}")
+    else:
+        print(f"  {DIM}no pay link (RAZORPAY_KEY_ID/SECRET not configured, or the "
+              f"request failed) — the nudge goes out without one{RESET}")
     message = Message(
         customer_ref=signal.customer_ref,
-        body=nudge_body(signal.amount_rupees, when),
+        body=nudge_body(signal.amount_rupees, merchant=MERCHANT, when=when,
+                        pay_link=link.url if link else None),
         case_id=case.id,
     )
     store.schedule_action(case.id, signal.customer_ref, "nudge", now, now)

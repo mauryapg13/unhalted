@@ -283,3 +283,132 @@ response body carried the answer the whole time in a field nobody had thought to
 using the system, and every one of these was found by using it *the way somebody else would*. The
 suite tests the replies we wrote. Nobody had sent it three emoji, a 6,000-character message, pure
 Devanagari, or a reply that quotes the parser's own output schema back at it.
+
+---
+
+### The lease read its own claim back by a key that was not unique
+**Date:** 2026-09-03
+
+**What happened:** Asked whether one worker would really be enough at scale, I tested it instead of
+arguing: four OS processes leasing from one SQLite file. **386 of 400 actions were claimed twice**,
+and one worker reported claiming 1,470 of the 400 that existed.
+
+**Why:** `lease_due_actions` did the claim and the read as two statements — `UPDATE ... SET
+leased_until = ?, worker = ?` and then `SELECT ... WHERE worker = ? AND leased_until = ?`. That
+pair is not a unique key. A worker claiming twice inside one lease window computes the same
+`leased_until` both times, so its second read returns the first batch as well, cumulatively. Two
+workers whose clocks agree collide outright.
+
+Every duplicate would have been a debit attempted twice.
+
+The module's own docstring says, in the paragraph directly above the bug: *"selecting first and
+updating after is how the same retry gets handed to two workers; this repository has already
+shipped one check-then-act race and does not need a second."* I wrote that, and then wrote the
+race, because I was thinking about the ordering of the two statements and not about whether the key
+joining them identified anything.
+
+**What changed:** `UPDATE ... RETURNING *`. Claim and read are now one statement, so there is no
+key to get wrong. Four processes, 400 actions, zero double-claims, and a test in
+`tests/test_store_concurrency.py` that runs real subprocesses — threads share this process's Store
+and its lock, so they cannot show what two deployed workers would do.
+
+Also added `PRAGMA busy_timeout = 5000`. SQLite fails a locked write immediately by default, and
+with several workers a claim will sometimes arrive while another holds the write lock. That test
+passed without it only because the contended window is short.
+
+**The lesson:** a comment describing a hazard is not a defence against it. The docstring named this
+exact failure and sat six lines above the code that committed it. What caught it was somebody
+asking a sceptical question about scale, and the decision to answer with a test rather than an
+argument — which took four minutes and would have taken a production incident otherwise.
+
+---
+
+### A test of a mock passed locally by calling something real
+**Date:** 2026-09-03
+
+**What happened:** CI failed `test_a_truncated_response_is_not_retried` — `assert calls["n"] == 1`
+got `0`. It had passed locally, including in the same run that produced this file's entry above.
+
+**Why:** the test replaces `httpx.post` and expects `_call_model` to reach it. `_call_model`
+returns before that line whenever `config.model_api_key()` is empty: `if not key: return
+ModelCall(None, "no model API key configured", 0)`. Locally `.env` carries a real key, so the guard
+passed and the mock got exercised; CI has no such file, the key is empty, and the mock sat unused
+while the function returned its own "not configured" result — which still happens to satisfy
+`parsed.failed` and the general shape of the assertion, just not the count that was the point of
+the test.
+
+**What changed:** the test now sets `config.model_api_key` to a fake value itself, so what it
+exercises no longer depends on which machine it runs on.
+
+**The lesson:** a test that reaches a real config function instead of a fixture is a test of
+whatever machine happens to run it. It passed here for the same reason a bug can hide behind a
+default that's only ever true in one place — nothing forced the gap into view until a second
+environment actually differed from the first.
+
+---
+
+### A promise for tomorrow morning landed 24 hours later instead
+**Date:** 2026-09-03
+
+**What happened:** replying "kal subah" (tomorrow morning) to a card retry produced a schedule
+labelled 23h 59m out — the customer's next day, but at whatever minute the reply happened to
+arrive, not morning at all. Caught live, on the scheduler terminal, watching a real rehearsal.
+
+**Why:** `validate_date` deliberately reduces a promise to a `date`, not an instant — "the 2nd" has
+no time of day, and asking the model to invent one would be fabricating what the customer said.
+Realignment then combined that bare date with `now.timetz()` — the clock reading at the instant the
+reply was parsed. A promise made at 21:24 landed at 21:24 the next day; a promise made at 09:00
+would have landed at 09:00. The day was right and always incidental; the time was never anything
+the customer stated, only ever whatever the shell's own clock said back to itself.
+
+**What changed:** the promised day now combines with `windows.CONTACT_OPEN` (08:00 IST) — the start
+of contact hours, already the codebase's own answer to "what time does a day begin" via
+`next_allowed_contact`. A promise for "the 2nd" now lands at the start of the 2nd, every time,
+regardless of when in the conversation it was made.
+
+**The lesson:** a value that is only *usually* stable — here, the clock reading at parse time —
+reads as a constant until the one day it visibly isn't. Nothing about the realignment tests caught
+this because none of them varied `now`'s time of day; they only varied the promised date, so the
+line reusing the wrong half of `now` never had a reason to disagree with itself.
+
+---
+
+### A redelivered payment was scheduling a second, real retry
+**Date:** 2026-09-04
+
+**What happened:** building `scripts/inject.py` — a way to run one documented scenario through
+the real pipeline twice, to prove re-running the same one matched back to the same case rather
+than duplicating it — the case matched correctly, and had **two** pending retries. Reproduced the
+same thing directly against the real webhook endpoint: one payment, two event ids, one case,
+two scheduled debits. Every case in `pending_actions` for a redelivered failure was carrying an
+extra live retry nobody had asked for.
+
+**Why:** `handle_failure` gated "should I diagnose and schedule this" on `open_case_or_get`'s
+`created` flag — true only for the call that inserted the case row. That flag answers "did I just
+create this row", which is a different question from "has this signal actually been worked yet",
+and the gap between the two was invisible until `ingest/webhooks.py`'s own architecture was
+considered: it calls `store.open_case(signal)` itself, for durability, *before* it ever calls
+`handle_failure` — so by the time `handle_failure` runs, the row already exists regardless of
+whether this is a payment's first delivery or its fifth. `created` reads False every time through
+the real endpoint, on purpose, for a reason that had nothing to do with redelivery.
+
+That also meant the audit trail's own "case-opened" vs "signal already known" wording — added in an
+earlier pass specifically to stop the trail asserting an event that never happened — was wrong in
+the other direction the whole time: every genuine first-ever webhook delivery was being recorded
+as "signal already known", because the row already existed by the time the wording was decided.
+Nothing caught it because the tests written for that fix drove `handle_failure` directly, the way
+`scripts/session.py` does, never through a caller that pre-creates the case the way the real
+endpoint does.
+
+**What changed:** the gate and the wording are now the same question, asked once: does this case
+already have a diagnosis on record. That is true only once the agent has actually decided something
+about a case, regardless of which caller happened to insert its row first, so it correctly reads
+"case-opened" on a genuine first delivery even when `webhooks.py`'s durability step created the row
+a moment earlier, and correctly stops before diagnosing or scheduling again on an actual repeat.
+
+**The lesson:** "did this call create the row" and "has this thing been processed" look like the
+same fact right up until a second caller creates the row for a different reason first. The
+durability pre-creation in `webhooks.py` was added for an honest reason — a signal on disk before
+slow work starts — and nobody re-checked what it did to a flag a different function was reading
+for an unrelated decision three calls away. Found the same way the double-claim bug was: by
+actually running the scenario the architecture was supposed to handle, not by reasoning about it.

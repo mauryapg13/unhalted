@@ -255,6 +255,12 @@ structured lines as they happen.
 **Not included:** a web dashboard. A live-updating view. Any server-rendered UI. The interfaces are
 structured logs, JSON endpoints and the CLI.
 
+**Amended.** "A live-updating view" originally sat in the excluded list, written against a web
+dashboard. Three terminal views that poll the store are not that: a reviewer's queue that exits when
+it is empty is a queue nobody is watching when a case arrives, and a scheduler with no view of what
+it holds cannot be operated at all. They read real rows, invent no events, and print plain text off
+a terminal. The exclusion still stands for anything served over HTTP.
+
 **Optional, last, only if C10 is otherwise met:** `unhalted report --html` writing a static file
 from the same measurement tables. A generated report, not a dashboard — no server, no live wiring.
 
@@ -282,6 +288,93 @@ policy does, for the same reason the batch report splits in two. A `compare` tha
 would be the batch report's dishonesty at case scale.
 
 **Ordering.** Worked before C10, because it changes what the video shows and the video is C10.
+
+---
+
+### C9c — The money question is answered without inventing an answer
+What the money argument rests on, stated so that nothing in it is a forecast.
+
+**Done when:** `unhalted breakeven` prints, from real stored cases or a batch: money sorted by what
+each policy can reach; the recovery rate at which the intervention repays its own cost; and the
+ceiling on what each policy could recover even at perfect conversion. Every figure is arithmetic on
+a measured cost and a documented failure class. No line in it is a recovery estimate.
+
+**Why it exists.** "How much money?" is the first question anyone asks, and this project cannot
+answer it — recovery needs real outcomes at volume, and whoever writes an outcome model decides the
+result. Breakeven inverts the unknown: instead of guessing the conversion rate and reporting the
+rupees, it reports the conversion rate at which the rupees stop being worth chasing. That is
+answerable, checkable, and a merchant can compare it against their own history in seconds.
+
+**Serves:** the question a judge asks first, and the one a merchant asks before deploying.
+
+**Not included:** rupees recovered as a point estimate, under any circumstances. A published
+benchmark borrowed from another market as a substitute for measurement — card-updater recovery in
+the US is a different mechanism from an Indian re-authorisation needing an MPIN, and citing one
+would be the same invention with a footnote attached.
+
+---
+
+### C9d — A scheduled action actually happens
+The seam between deciding to recover money and recovering it.
+
+**Done when:** `unhalted run-due` and `POST /internal/run-due` execute the actions whose time has
+come, claiming them under a lease so two workers cannot take the same one, reclaiming a lease whose
+worker died, refusing an action a stop rule cancelled while it was held, and recording every
+execution in the audit trail beside the decision that caused it.
+
+**Why it exists.** `pending_actions` had three writers and no runner. A retry scheduled for 13:00
+was a row describing an intention, and 13:00 arrived and nothing happened. Every part was correct
+and the seam between them did not exist — the same shape as the three bugs in `BREAKAGE.md`, and
+the most consequential instance of it.
+
+**The queue is the table.** No broker. A row with a due time and a state is durable already, and it
+shares a transaction boundary with the audit trail and the stop rules, so a revocation and the
+retry it cancels cannot interleave wrongly. Delivery is at-least-once, because a lease that expires
+returns its work; the execution side must stay idempotent for that to be safe.
+
+**Not included:** a debit adapter. Initiating a charge needs a live mandate token and this account
+cannot register one for UPI at all, so `retry` refuses, records why, and routes to a person.
+Absent and saying so, not stubbed and lying. Also absent: authentication on the endpoint, and any
+claim that this system has recovered money in production.
+
+---
+
+### C9e — Policy lives in one file, and a change to it is proposable
+NPCI and RBI requirements change; the numbers this system enforces should not be an archaeology
+project across six modules when they do.
+
+**Done when:** every threshold this system enforces — NPCI bands, contact hours, the retry cap,
+backoff tiers, confidence thresholds, reply-policy thresholds, ladder costs, mandate limits — is
+read from `config/policy.yaml` through `unhalted.policy`, not hardcoded in the module that uses
+it; `scripts/propose_policy_change.py` reads free text describing a change and proposes a
+field-level diff, checked against the exact words that justify each proposed value.
+
+**Why it exists.** The same NPCI-band concept was independently duplicated, and wrongly diverged,
+across three separate code paths in this project before being caught (`BREAKAGE.md`). A concept
+that exists in one place cannot diverge from itself. Separately: a merchant running this against
+real, changing regulation needs a way to update it that is faster than a code review, and safer
+than a human retyping a number by hand from a PDF.
+
+**The model proposes, exactly as far as anywhere else in this project.** It never writes to
+`config/policy.yaml` — `propose_policy_change.py` has no filesystem-write call in it at all,
+verified directly by a test that inspects its own source. A proposed field outside a fixed,
+closed set is refused before being shown, not silently accepted; a proposed value whose quote does
+not actually appear in the input text is dropped the same way an invented reply-evidence span is.
+Backoff tiers, confidence thresholds and reply-policy thresholds are deliberately outside the set
+a circular can touch — those are this project's own risk tolerance, not something NPCI or RBI
+states, and a circular is not a mechanism for relaxing them.
+
+**Migrated one module at a time**, full suite run after each, so every value is confirmed
+identical to what was previously hardcoded — a change to the *source* of a number, not to the
+number — before the next module was touched.
+
+**Not included:** an `--apply` flag, or anything that writes the proposed change for you. Editing
+`config/policy.yaml` is a person's action, deliberately, the same way approving a held case is.
+Also not included: preserving the file's own comments through an automated edit — a real concern
+raised and set aside rather than solved, since the honest answer this late is "not done," not a
+tool that silently strips the documentation explaining why each number is what it is.
+
+---
 
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
@@ -358,6 +451,8 @@ Recorded as they are established, so no one re-litigates them later.
 | Error-scenario cards on the payment-link checkout | **do not produce their documented reason.** The hosted page's mock bank offers only Success/Failure, so every failure returns generic `payment_failed` / `gateway` regardless of card. Verified 2026-08-31 with the `insufficient_fund` card. Those cards are for Standard Checkout, the embeddable widget |
 | Captured variety | one real reason obtainable this way. The other documented reasons come from Razorpay's published payloads, labelled as such, and the batch replays both |
 | NPCI restricted bands | 10:00–13:00 and 17:00–21:30 IST |
+| Scope of the NPCI bands | **UPI Autopay only.** Cards are not NPCI-routed for recurring and emandate settles through NACH. Encoded in `windows.UNBANDED_METHODS`; an unknown method is treated as banded, because a card delayed wrongly costs hours and a UPI debit inside a band is a breach. Fixed in #30 |
+| Razorpay's retry model, per method | **Not one model.** UPI is documented in full (T+1/T+2/T+3 then halted) and so are cards ("thrice, once every day for 3 days"). Emandate is not: they state no retry count and say the next attempt waits on the previous one settling, "as it may take more than 24 hours", plus bank-holiday shifting to T-1 or T-3. The emandate count in `baseline.py` is an assumption and is flagged `assumption_used`. Source: `payments/subscriptions/payment-retries.md`, verified 2026-09-03 |
 | Charge initiates after pre-debit alert | 25 hours |
 | UPI Autopay limits | mandate creation up to ₹1,00,000; frictionless debit ₹15,000, or ₹1,00,000 for BFSI. Above that requires **additional customer authorisation**, not failure |
 | Card recurring limit | above the limit, domestic card charges **fail automatically** |

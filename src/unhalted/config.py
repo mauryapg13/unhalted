@@ -47,8 +47,20 @@ def webhook_secret() -> str:
     return os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
 
 
+def razorpay_key_id() -> str:
+    return os.environ.get("RAZORPAY_KEY_ID", "")
+
+
+def razorpay_key_secret() -> str:
+    return os.environ.get("RAZORPAY_KEY_SECRET", "")
+
+
 def database_path() -> str:
     return os.environ.get("UNHALTED_DB", "unhalted.db")
+
+
+def policy_path() -> str:
+    return os.environ.get("UNHALTED_POLICY", str(ROOT / "config" / "policy.yaml"))
 
 
 def model_name() -> str:

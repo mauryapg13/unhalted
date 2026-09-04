@@ -17,12 +17,13 @@ low volume. It is not a reason to reach for a server database.
 from __future__ import annotations
 
 import logging
+import pathlib
 import sqlite3
 import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -74,11 +75,23 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     scheduled_for TEXT,
     state         TEXT NOT NULL DEFAULT 'pending',
     cancel_reason TEXT,
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    -- A lease, not a lock. A worker that dies mid-action does not strand the
+    -- row: the lease expires and the action returns to 'pending'. That makes
+    -- delivery at-least-once, which is only safe because the execution side is
+    -- idempotent — see runner.py.
+    leased_until  TEXT,
+    worker        TEXT,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_error    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_customer
     ON pending_actions(customer_ref, state);
+
+-- The index the runner actually queries on: what is pending and due.
+CREATE INDEX IF NOT EXISTS idx_pending_due
+    ON pending_actions(state, scheduled_for);
 
 CREATE TABLE IF NOT EXISTS processed_events (
     event_id      TEXT PRIMARY KEY,
@@ -96,12 +109,17 @@ def default_db_path() -> str:
     return config.database_path()
 
 
+class OrphanedWriteAheadLog(RuntimeError):
+    """The database file was deleted while its write-ahead log survived."""
+
+
 class Store:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or default_db_path()
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._check_for_orphaned_wal()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -115,8 +133,72 @@ class Store:
         # survive the power going out, because Razorpay will not redeliver
         # forever and a lost case is money nobody chases.
         self._conn.execute("PRAGMA synchronous = FULL")
+        # SQLite defaults to failing a locked write immediately. WAL lets many
+        # readers run beside one writer, but writers still serialise, so with
+        # more than one worker process a claim can arrive while another holds
+        # the write lock. Waiting is right here: the contended window is a
+        # single short transaction, and returning SQLITE_BUSY to the caller
+        # would turn ordinary contention into a failed recovery action.
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA)
+        self._add_missing_columns()
         self._conn.commit()
+
+    #: Columns added after the first databases were written. `CREATE TABLE IF
+    #: NOT EXISTS` will not add a column to a table that already exists, so an
+    #: older file opens without them and every query against them fails.
+    _LATE_COLUMNS = (
+        ("pending_actions", "leased_until", "TEXT"),
+        ("pending_actions", "worker", "TEXT"),
+        ("pending_actions", "attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("pending_actions", "last_error", "TEXT"),
+    )
+
+    def _add_missing_columns(self) -> None:
+        """Bring an existing database up to the current schema.
+
+        Deliberately not a migration framework. Four additive columns do not
+        justify one, and an ALTER that has already been applied is detected
+        rather than tracked, so this is safe to run on every open.
+        """
+        for table, column, decl in self._LATE_COLUMNS:
+            existing = {
+                r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")
+            }
+            if column not in existing:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+    def _check_for_orphaned_wal(self) -> None:
+        """Refuse to open a database whose main file was deleted under it.
+
+        In WAL mode SQLite keeps `-wal` and `-shm` beside the database, and
+        `rm unhalted.db` leaves them behind. The next open then fails with a
+        bare `disk I/O error`, which says nothing about the cause — and this is
+        an easy mistake to make, because resetting for a demo is exactly when
+        somebody deletes the database by hand.
+
+        The orphans cannot be recovered from: a write-ahead log refers to a
+        database that no longer exists. But deleting other people's files on
+        their behalf is not this constructor's business, so it names them and
+        stops.
+        """
+        main = pathlib.Path(self.path)
+        if main.exists() or self.path == ":memory:":
+            return
+        orphans = [
+            p for p in (main.with_name(main.name + "-wal"),
+                        main.with_name(main.name + "-shm"))
+            if p.exists()
+        ]
+        if not orphans:
+            return
+        listed = " ".join(str(p) for p in orphans)
+        raise OrphanedWriteAheadLog(
+            f"{self.path} is gone but its write-ahead log is not: {listed}. "
+            f"A log without its database cannot be recovered from. Remove them "
+            f"and try again:\n    rm -f {self.path} {listed}"
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -145,6 +227,23 @@ class Store:
 
     # -- cases ---------------------------------------------------------------
 
+    def open_case_or_get(self, signal: FailureSignal) -> tuple[Case, bool]:
+        """Returns `(case, created)`.
+
+        Callers that write an audit record need to know which happened. Writing
+        "case-opened" for a signal that merely matched an existing case makes
+        the trail claim an event that did not occur — and running the demo
+        script twice against one database produced exactly that.
+
+        Novelty is decided inside the same lock as the case, so the answer
+        cannot be stale by the time it is used.
+        """
+        with self._lock:
+            existing = self.case_for_payment(signal.payment_id)
+            if existing:
+                return existing, False
+            return self._open_case_locked(signal), True
+
     def open_case(self, signal: FailureSignal) -> Case:
         """Open a case for a signal, or return the existing one.
 
@@ -162,8 +261,7 @@ class Store:
         constraint holds regardless, and losing that race returns the case the
         winner opened rather than raising.
         """
-        with self._lock:
-            return self._open_case_locked(signal)
+        return self.open_case_or_get(signal)[0]
 
     def _open_case_locked(self, signal: FailureSignal) -> Case:
         existing = self.case_for_payment(signal.payment_id)
@@ -347,6 +445,36 @@ class Store:
             )
             return int(cur.lastrowid or 0)
 
+    def actions(
+        self,
+        *,
+        state: str | None = None,
+        customer_ref: str | None = None,
+        case_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Scheduled actions, filtered. `state=None` returns every state.
+
+        The scheduler view needs cancelled and leased rows as well as pending
+        ones — an action that was cancelled by a stop rule is an event worth
+        showing, and `pending_actions` by name cannot return it.
+        """
+        sql = "SELECT * FROM pending_actions"
+        params: list[Any] = []
+        clauses = []
+        if state is not None:
+            clauses.append("state = ?")
+            params.append(state)
+        if customer_ref:
+            clauses.append("customer_ref = ?")
+            params.append(customer_ref)
+        if case_id:
+            clauses.append("case_id = ?")
+            params.append(case_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        with self._read() as conn:
+            return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
     def pending_actions(
         self, *, customer_ref: str | None = None, case_id: str | None = None
     ) -> list[dict[str, Any]]:
@@ -360,6 +488,102 @@ class Store:
             params.append(case_id)
         with self._read() as conn:
             return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
+    def release_expired_leases(self, now: datetime) -> int:
+        """Return actions whose worker died to the pending pool.
+
+        This is what makes a crash survivable without anyone intervening. A
+        worker holding a lease that has passed its expiry is assumed gone, and
+        its work becomes available again.
+        """
+        with self._tx() as conn:
+            return int(
+                conn.execute(
+                    "UPDATE pending_actions"
+                    " SET state = 'pending', leased_until = NULL, worker = NULL"
+                    " WHERE state = 'leased' AND leased_until <= ?",
+                    (now.isoformat(),),
+                ).rowcount
+            )
+
+    def lease_due_actions(
+        self,
+        now: datetime,
+        *,
+        worker: str,
+        lease_for: timedelta,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Claim the actions that are due, so no other worker takes them.
+
+        Claim and read are **one statement**, via `UPDATE ... RETURNING`. An
+        earlier version updated and then selected back by `(worker,
+        leased_until)`, which is not a unique key: the same worker claiming
+        twice within one lease window read its earlier batch again, and two
+        workers computing the same expiry collided outright. Four processes over
+        400 actions produced 386 double-claims — every one of which would have
+        been a debit attempted twice.
+
+        `RETURNING` removes the second query rather than making it more careful,
+        which is the only version of this that cannot drift back.
+        """
+        until = (now + lease_for).isoformat()
+        with self._tx() as conn:
+            rows = conn.execute(
+                "UPDATE pending_actions"
+                " SET state = 'leased', leased_until = ?, worker = ?,"
+                "     attempts = attempts + 1"
+                " WHERE id IN ("
+                "   SELECT id FROM pending_actions"
+                "    WHERE state = 'pending'"
+                "      AND scheduled_for IS NOT NULL"
+                "      AND scheduled_for <= ?"
+                "    ORDER BY scheduled_for"
+                "    LIMIT ?"
+                " )"
+                " RETURNING *",
+                (until, worker, now.isoformat(), limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def action(self, action_id: int) -> dict[str, Any] | None:
+        """One action as it stands right now.
+
+        The runner re-reads through this immediately before executing, so a
+        cancellation that landed after the lease was taken still wins.
+        """
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT * FROM pending_actions WHERE id = ?", (action_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def finish_action(
+        self,
+        action_id: int,
+        *,
+        state: str,
+        error: str | None = None,
+    ) -> None:
+        """Mark a leased action done, failed, or handed to a person."""
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE pending_actions"
+                " SET state = ?, last_error = ?, leased_until = NULL"
+                " WHERE id = ?",
+                (state, error, action_id),
+            )
+
+    def return_action(self, action_id: int, *, scheduled_for: datetime) -> None:
+        """Put a leased action back, to be tried again later."""
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE pending_actions"
+                " SET state = 'pending', leased_until = NULL, worker = NULL,"
+                "     scheduled_for = ?"
+                " WHERE id = ?",
+                (scheduled_for.isoformat(), action_id),
+            )
 
     def cancel_pending(
         self,
@@ -379,7 +603,13 @@ class Store:
         if not customer_ref and not case_id:
             raise ValueError("cancel_pending needs a customer_ref or a case_id")
 
-        sql = "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ? WHERE state = 'pending'"
+        # 'leased' is included deliberately. A customer revoking while a worker
+        # holds the lease must still stop the charge; the runner re-reads state
+        # before it acts, so a cancellation lands even mid-flight.
+        sql = (
+            "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ?"
+            " WHERE state IN ('pending', 'leased')"
+        )
         params: list[Any] = [reason]
         if customer_ref:
             sql += " AND customer_ref = ?"

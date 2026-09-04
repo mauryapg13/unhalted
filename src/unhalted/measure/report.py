@@ -212,6 +212,25 @@ A control group absorbs unobserved variation, and a generated batch running two 
 policies has none. Both policies were run over *every* case instead, which is a paired comparison
 and strictly stronger. The holdout stays for the day this runs against real traffic.
 
+## Part two — modelled, and not a measurement
+
+Shown first because it is the number everyone asks for. The counted facts it is built from —
+nothing here needs to know whether anything recovered — follow immediately after, in Part one.
+
+Rupees recovered depends on how often a recovery attempt works, and this project cannot measure
+that: it needs real outcomes at volume. So it is shown as a range. The rates are inputs, not
+findings.
+
+| If attempts succeed at | Agent | Baseline | Difference |
+|---|---:|---:|---:|
+{sensitivity}
+
+The agent's advantage in this model comes from one thing only: it does not spend attempts on
+failures that a retry provably cannot fix. Everything else in the difference would require knowing
+how customers respond, which nobody here does.
+
+**No line in this section is a measurement, and none should be quoted as one.**
+
 ## Part one — counted, no assumptions
 
 Facts about what each policy does. Nothing here needs to know whether anything recovered.
@@ -278,20 +297,4 @@ whatever was generated. What *is* countable is how much the choice matters.
 | Band | Cases | Share |
 |---|---:|---:|
 {bands}
-
-## Part two — modelled, and not a measurement
-
-Rupees recovered depends on how often a recovery attempt works, and this project cannot measure
-that: it needs real outcomes at volume. So it is shown as a range. The rates are inputs, not
-findings.
-
-| If attempts succeed at | Agent | Baseline | Difference |
-|---|---:|---:|---:|
-{sensitivity}
-
-The agent's advantage in this model comes from one thing only: it does not spend attempts on
-failures that a retry provably cannot fix. Everything else in the difference would require knowing
-how customers respond, which nobody here does.
-
-**No line in this section is a measurement, and none should be quoted as one.**
 """
