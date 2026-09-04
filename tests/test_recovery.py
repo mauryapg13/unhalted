@@ -59,3 +59,14 @@ def test_recovery_returns_how_many_pending_actions_it_cancelled(open_case) -> No
     store, case = open_case
     cancelled = mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
     assert cancelled == 1
+
+
+def test_the_customer_is_told_it_settled(open_case, capsys) -> None:
+    """Before this, a case went RECOVERED and the customer heard nothing —
+    the same silence a real WhatsApp thread never would."""
+    store, case = open_case
+    mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
+
+    out = capsys.readouterr().out
+    assert "received" in out
+    assert "499" in out

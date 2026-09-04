@@ -27,8 +27,8 @@ from unhalted import clock, config, tui
 from unhalted.agent import handle_failure, handle_reply
 from unhalted.ingest.normalize import from_payment_failed
 from unhalted.models import CaseState
-from unhalted.shell import paylink, windows
-from unhalted.shell.notify import ConsoleNotifier, Message, deliver, nudge_body
+from unhalted.runner import run_due
+from unhalted.shell import windows
 from unhalted.store import Store
 
 ROOT = pathlib.Path(__file__).parent.parent
@@ -99,7 +99,6 @@ def main() -> int:
     ))
 
     store = Store(str(SESSION_DB))
-    notifier = ConsoleNotifier()
     now = windows.as_ist(stated)
     if note:
         print(note)
@@ -124,36 +123,16 @@ def main() -> int:
         fired = ("  " + ", ".join(r.rules_fired)) if r.rules_fired else ""
         print(f"    {r.decision_type:<10} {r.action}{DIM}{fired}{RESET}")
 
-    scheduled = next(
-        (r for r in store.timeline(case.id) if r.decision_type == "schedule"), None
-    )
-    when = (
-        scheduled.action.removeprefix("retry at ") if scheduled else "shortly"
-    )
-
-    rule("3. The agent contacts the customer")
-    link = paylink.create_payment_link(
-        amount_paise=signal.amount_paise, description=f"payment retry for {case.id}",
-        reference_id=case.id,
-    )
-    if link:
-        print(f"  {DIM}pay link generated: {link.url}{RESET}")
-    else:
-        print(f"  {DIM}no pay link (RAZORPAY_KEY_ID/SECRET not configured, or the "
-              f"request failed) — the nudge goes out without one{RESET}")
-    message = Message(
-        customer_ref=signal.customer_ref,
-        body=nudge_body(signal.amount_rupees, merchant=MERCHANT, when=when,
-                        pay_link=link.url if link else None),
-        case_id=case.id,
-    )
-    store.schedule_action(case.id, signal.customer_ref, "nudge", now, now)
-    delivery = deliver(notifier, message, now=now)
-    if not delivery.sent:
-        print(f"  {DIM}not sent: {delivery.reason}{RESET}")
-        print(f"  {DIM}(contact hours are 08:00-19:00 IST and apply to every channel){RESET}")
-        print(f"\n  Continuing anyway so you can test the reply loop.{RESET}")
-        notifier.send(message)
+    rule("3. Whatever the ladder scheduled actually runs")
+    # Not a hand-picked nudge: this is the same `run_due` that a real deployment's
+    # scheduler or `/internal/run-due` calls. Whatever `handle_failure` actually
+    # scheduled above — a nudge, a retry, a reauthorisation with no executor yet,
+    # or nothing at all if the case sits at SILENT_RETRY with nothing due this
+    # instant — is what executes here, contact hours and all. A hardcoded nudge
+    # regardless of diagnosis was a script pretending to be the pipeline; this is
+    # the pipeline.
+    report = run_due(store, now=now)
+    print(f"  {report.render()}")
 
     rule("4. Your turn — reply as the customer")
     print(f"  {DIM}Type a reply and press enter. Ctrl-D to finish.{RESET}")

@@ -21,6 +21,7 @@ from unhalted.models import (
     ParsedReply,
 )
 from unhalted.shell import ladder, limits, replies, stops, verify, windows
+from unhalted.shell.notify import ConsoleNotifier, Message, deliver
 from unhalted.shell.scheduler import ScheduleDecision, backoff_for, schedule_retry
 from unhalted.store import Store
 
@@ -565,8 +566,14 @@ def mark_recovered(
     the money has arrived by a different route. This is not a stop rule —
     nothing is wrong, the case is simply finished — so it does not go through
     `stops.rule()`, which exists for refusals, not successes.
+
+    A customer who pays is owed a word back, the same as a real WhatsApp
+    thread would send one rather than going silent — this closed the case
+    silently until now. Same gate as a nudge: contact hours apply here too,
+    not just to messages asking for money.
     """
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
+    case = store.get_case(case_id)
     cancelled = store.cancel_pending("RECOVERED", case_id=case_id)
     store.set_state(case_id, CaseState.RECOVERED)
     store.record(
@@ -579,4 +586,12 @@ def mark_recovered(
             outcome=f"cancelled {cancelled} pending action(s); case recovered",
         )
     )
+    if case is not None:
+        message = Message(
+            customer_ref=case.customer_ref,
+            body=f"Payment of Rs {amount_paise / 100:.0f} received — thank you, this is settled.",
+            case_id=case_id,
+            kind="confirmation",
+        )
+        deliver(ConsoleNotifier(), message, now=now)
     return cancelled

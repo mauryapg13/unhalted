@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- A customer who pays through the recovery link is told so. `mark_recovered` closed the case and
+  cancelled its pending actions but never sent a word back — the same silence a real WhatsApp
+  thread never would. It now sends a plain confirmation through the same notifier and the same
+  contact-hours gate a nudge uses, so nothing about a paid case is quieter than one still being
+  chased.
 - `unhalted calibration` — whether confidence predicts outcome, measured on real terminal cases
   only, never generated ones. Issue #7 could not be settled on generated data because the correct
   class there is whatever the generator picked; `mark_recovered` gives some cases a real,
@@ -80,6 +85,10 @@
   fifteen screens later.
 
 ### Fixed
+- `scripts/session.py` scheduled `"nudge"` by hand and delivered it itself, regardless of what the
+  diagnosis actually was — a script exercising a shortcut and calling it the pipeline. It now calls
+  the real `run_due()`, the same function the CLI and the HTTP scheduler call, so whatever the
+  ladder actually scheduled — a retry, a nudge, or nothing — is what runs, contact hours included.
 - The ladder's escalation had never actually run through `run_due`. `agent.py` scheduled every
   non-`SILENT_RETRY` rung with `kind=Intervention.name` (prose for a human, e.g. "message with a
   pay link") instead of a key `runner.EXECUTORS` holds, and `scheduled_for=None`, which the
