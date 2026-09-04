@@ -412,3 +412,37 @@ durability pre-creation in `webhooks.py` was added for an honest reason — a si
 slow work starts — and nobody re-checked what it did to a flag a different function was reading
 for an unrelated decision three calls away. Found the same way the double-claim bug was: by
 actually running the scenario the architecture was supposed to handle, not by reasoning about it.
+
+---
+
+### The model's completion budget was mostly invisible
+**Date:** 2026-09-04
+
+**What happened:** asked to diagnose why a live model call felt slow, a trivial probe — "reply
+with ONLY the digit 1" — returned no content at all, `finish_reason: length`, at `max_tokens: 10`.
+A realistic call timed at 11-36 seconds across three otherwise-identical requests at
+`temperature: 0`.
+
+**Why:** `z-ai/glm-5.3-flash` reasons before it answers, and that reasoning is billed to the same
+completion budget as the visible output. Dumping `usage.completion_tokens_details` instead of
+guessing showed **85-95% of every completion spent on reasoning nobody sees** — 887, 1309, and 979
+tokens across the three timed calls, for 116-171 tokens of actual JSON. The reasoning length is not
+pinned by temperature the way visible-token selection is: it varies call to call on identical
+input, and that variance — not network routing, one provider (Z.AI) served every call — is what
+produced the wide latency swings reported live.
+
+**What changed:** `reasoning: {"effort": "low"}` on every live call. Verified before applying it,
+not after: the 7 hardest multi-intent replies in `tests/fixtures/replies/labelled.json` all parsed
+identically or better (one case where default effort added a spurious intent that low effort
+didn't), 3-9x faster. The full 68-reply evaluation was then re-run under it — cache deleted first,
+since its key is derived only from the prompt text and would have silently served pre-change
+results otherwise — and `docs/reply-evaluation.md` now carries genuinely current numbers: 68/68
+parsed (was 67/68), compliance-critical recall (`opt-out`, `distress`) still 1.00, cost per parse
+roughly halved.
+
+**The lesson:** a model that reasons is not slow because of what it says; it is slow because of
+what it doesn't show you, and that budget can be entirely consumed with zero visible symptom
+beyond an empty response — the ten-token probe above returned nothing and gave no hint why until
+the usage breakdown was actually read. "Reasoning models are slower" is true and also not
+specific enough to fix anything; the actual lever was one parameter, found by measuring rather
+than accepting the latency as a property of the model nobody could do anything about.

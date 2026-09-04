@@ -167,6 +167,11 @@ def _call_model(text: str) -> ModelCall:
         ],
         "max_tokens": MAX_TOKENS,
         "temperature": 0,
+        # See the identical note in core/reply.py: this model spends most of
+        # its completion budget on invisible reasoning tokens, which is what
+        # actually drives the call-to-call latency swings. "low" measured
+        # 3-9x faster with no accuracy loss on real test cases.
+        "reasoning": {"effort": "low"},
     }
 
     last = "unknown"

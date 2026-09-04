@@ -28,6 +28,19 @@
   guess at a vaguely-worded mention, correctly treated "unchanged" as nothing to propose.
 
 ### Changed
+- Every live model call now sets `reasoning: {"effort": "low"}`. `z-ai/glm-5.3-flash` reasons
+  before it answers, billed to the same completion budget as the visible output — measured
+  directly, a trivial prompt at default effort spent its entire budget on invisible reasoning and
+  returned no content at all, and a realistic policy-change call spent 85-95% of its tokens the
+  same way, with reasoning length varying enough call to call (887 to 1608 tokens on an otherwise
+  identical request) to be the actual source of the multi-second-to-30-second latency swings
+  reported live. Lowering it cut reasoning tokens to single digits and latency 3-9x on the hardest
+  cases in `tests/fixtures/replies/labelled.json`, with no accuracy loss measured against them —
+  the full 68-reply evaluation re-run under it: 68/68 parsed (was 67/68), `opt-out` and `distress`
+  recall still 1.00, zero forbidden intents, cost per parse roughly halved. `docs/reply-evaluation.md`
+  and the README's results table both carry the re-measured numbers rather than the pre-change ones.
+- `scripts/evaluate_replies.py` now measures and reports latency and cost per parse directly,
+  rather than the report only covering accuracy.
 - The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
   one) that justify it. It's the number everyone asks for first; the reordering says so in its own
   first line, and the counted section it depends on follows immediately after rather than

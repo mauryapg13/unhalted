@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import statistics
 import sys
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
@@ -40,14 +42,18 @@ MODEL = config.model_name()
 CONTEXT_TEMPLATE = "A subscription renewal of Rs 499 failed. Today is {today}."
 
 
-def run_one(case: dict, cache: dict, context: str) -> dict:
+def run_one(case: dict, cache: dict, context: str) -> tuple[dict, float | None]:
+    """Returns (result, latency_seconds). Latency is `None` on a cache hit —
+    it measures the endpoint, not how fast a dict lookup is."""
     key = f"{prompt_hash()}:{context}:{case['id']}"
     if key in cache:
-        return cache[key]
+        return cache[key], None
+    t0 = time.monotonic()
     parsed = parse(case["reply"], context=context)
+    latency = time.monotonic() - t0
     result = parsed.model_dump(mode="json")
     cache[key] = result
-    return result
+    return result, latency
 
 
 def main() -> int:
@@ -65,8 +71,11 @@ def main() -> int:
     context = CONTEXT_TEMPLATE.format(today=data["today"])
     print(f"parsing {len(cases)} replies ({WORKERS} at a time)...")
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        results = list(pool.map(lambda c: run_one(c, cache, context), cases))
+        outcomes = list(pool.map(lambda c: run_one(c, cache, context), cases))
     CACHE.write_text(json.dumps(cache))
+
+    results = [r for r, _ in outcomes]
+    latencies = [dt for _, dt in outcomes if dt is not None]
 
     tp: dict[str, int] = defaultdict(int)
     fp: dict[str, int] = defaultdict(int)
@@ -157,6 +166,26 @@ def main() -> int:
     print(f"date mismatches     {len(date_misses)}")
     print(f"promises not acted  {len(threshold_misses)}")
 
+    costs = [r["cost_usd"] for r in results if r.get("cost_usd")]
+    cost_per_parse = statistics.mean(costs) if costs else 0.0
+    print(f"cost per parse  ${cost_per_parse:.6f}  (mean over {len(costs)} priced replies, "
+          f"OpenRouter usage.cost)")
+
+    if latencies:
+        print(f"latency (live calls, n={len(latencies)})  "
+              f"min={min(latencies):.1f}s median={statistics.median(latencies):.1f}s "
+              f"max={max(latencies):.1f}s")
+        latency_note = (
+            f"Measured on {len(latencies)} live calls this run (the rest were served from "
+            f"`.reply-eval-cache.json`): **{min(latencies):.1f}s to {max(latencies):.1f}s**, "
+            f"median {statistics.median(latencies):.1f}s."
+        )
+    else:
+        latency_note = (
+            "Every reply this run was served from `.reply-eval-cache.json` — delete it "
+            "(or pass `--no-cache`) to measure live latency."
+        )
+
     def block(title: str, items: list[str]) -> str:
         if not items:
             return f"**{title}:** none.\n"
@@ -205,10 +234,21 @@ real problem, so the accuracy below is measured **only over replies that parsed*
 | Failed after {ATTEMPTS_PER_CALL} attempts | {len(parse_failures)} |
 | Needed at least one retry | {retried} |
 | Model calls made | {attempts_used} for {len(cases)} replies |
+| Cost per parse | ${cost_per_parse:.6f} (mean over {len(costs)} priced replies) |
 
 A failure is operationally safe — the reply is preserved and queued for a human, and nothing fires
 on a guess. It is still a reply the agent did not handle, and at this rate it is the largest single
 weakness in the parser.
+
+## Latency
+
+{latency_note}
+
+This model reasons before it answers, and the reasoning is billed to the same completion budget
+as the visible output — measured directly, a trivial prompt spent its entire budget on reasoning
+and returned no content at all. `reasoning: {{"effort": "low"}}` is set on every call for exactly
+this reason: it cut reasoning tokens from the hundreds-to-low-thousands down to single digits on
+the hardest multi-intent cases in this corpus, with no accuracy loss measured against them.
 
 ## Precision and recall by intent
 
