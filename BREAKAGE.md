@@ -491,3 +491,48 @@ the code that committed it. The difference here is that this was always the plan
 never writes to `core/taxonomy.py`, precisely because a model that can state the correct reasoning
 and still reach the wrong conclusion in the same breath is not a model whose conclusion should be
 trusted unread.
+
+---
+
+### The ladder's escalation had never actually run through `run_due`
+**Date:** 2026-09-04
+
+**What happened:** a live demo injected `authentication_failed` (classifies `NOTIFICATION_GAP`,
+enters the ladder at `NUDGE`), expecting a customer message with a pay link. `unhalted case`
+showed the nudge scheduled correctly on paper, but `unhalted run-due` reported `claimed=0` — the
+row was never picked up at all.
+
+`agent.py`'s escalation path scheduled every non-`SILENT_RETRY` rung with
+`store.schedule_action(case.id, case.customer_ref, ladder.LADDER[rung].name, None, now)`. Two
+faults, either one sufficient alone: `kind` was `Intervention.name` — prose meant for a human
+("message with a pay link", "re-authorisation link") — which never matched any key in
+`runner.EXECUTORS` (`"nudge"`, `"retry"`); and `scheduled_for` was passed as `None`, which can
+never satisfy the claiming query's `scheduled_for <= now`. The row existed, looked plausible in
+`unhalted case`, and could never be claimed by the real asynchronous runner for either reason
+independently of the other.
+
+**Why:** `scripts/session.py` has its own separate, hardcoded call —
+`store.schedule_action(case.id, signal.customer_ref, "nudge", now, now)` — that bypasses the
+ladder's naming entirely and was the only path ever exercised in a demo. `tests/test_ladder.py`
+asserted the escalation *row* looked right (`kind == "re-authorisation link"`) but nothing asserted
+the row was *claimable*, so a test locked in the broken kind string as correct, the same pattern
+this file has flagged before. The result: every "the pay link generates" claim made earlier this
+session was only ever true via `session.py`'s synchronous shortcut, never via the durable
+`run_due`/`scripts/schedule.py --run` path the architecture is actually built around.
+
+**What changed:** `ladder.py`'s previously-private `_SLUG` map (`Rung` → plain slugs matching
+`runner.EXECUTORS`'s keys: `"nudge"`, `"reauthorisation"`, etc.) is now public `SLUG`, and
+`agent.py` schedules with `store.schedule_action(case.id, case.customer_ref, ladder.SLUG[rung],
+now, now)` — a real due time, matching how a retry is scheduled, and a kind that actually matches
+an executor's lookup key. `NUDGE` now genuinely executes end to end. `REAUTHORISATION`,
+`VOICE_CALL` and `HUMAN_CALLBACK` still have no registered executor — scheduling them now
+correctly reports "no executor registered for 'reauthorisation'" instead of *also* being
+unschedulable, which is the honest absence this project's own rule calls for, not a stub. Added
+`tests/test_ladder.py::test_a_notification_gap_nudge_actually_runs_through_run_due`, which asserts
+`report.claimed == 1` and `report.done == 1` — a claim the older test's `kind`-string assertion
+could pass while the bug was still present.
+
+**The lesson:** a scheduled row that reads correctly in a case listing is not evidence it can ever
+be claimed. The only test that would have caught this is one that runs the claiming query, not one
+that inspects the row's fields — the same gap between "looks right" and "was run" that this file's
+webhook-redelivery and stdin-hang entries already found in other parts of the pipeline.

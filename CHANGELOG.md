@@ -80,6 +80,18 @@
   fifteen screens later.
 
 ### Fixed
+- The ladder's escalation had never actually run through `run_due`. `agent.py` scheduled every
+  non-`SILENT_RETRY` rung with `kind=Intervention.name` (prose for a human, e.g. "message with a
+  pay link") instead of a key `runner.EXECUTORS` holds, and `scheduled_for=None`, which the
+  claiming query's `scheduled_for <= now` can never satisfy — either fault alone left the row
+  permanently unclaimable. Found live: injecting `authentication_failed` scheduled a nudge that
+  `unhalted case` showed correctly but `unhalted run-due` reported `claimed=0` for. `ladder.py`'s
+  `_SLUG` map is now public `SLUG` and `agent.py` schedules with `ladder.SLUG[rung]` and a real due
+  time, matching how a retry is scheduled. `NUDGE` now genuinely executes end to end;
+  `REAUTHORISATION`/`VOICE_CALL`/`HUMAN_CALLBACK` still have no registered executor and now say so
+  honestly rather than *also* being unschedulable. A prior test had asserted the broken `kind`
+  string as correct; fixed, and a new integration test proves the row is claimable and executed,
+  not just shaped right. Recorded in `BREAKAGE.md`.
 - `scripts/propose_policy_change.py` silently blocked forever when run with no `--file` and
   nothing piped in — waiting on `stdin`, correctly, but with nothing printed first, which is
   indistinguishable from a hang. Caught live: it sat for 30 minutes before being reported. The

@@ -47,8 +47,11 @@ class Rung(int, enum.Enum):
 
 #: This module's own name for each rung, in the plain-string terms
 #: config/policy.yaml uses — policy.py is not allowed to know Rung exists,
-#: so the mapping from its slugs back to this enum lives here.
-_SLUG = {
+#: so the mapping from its slugs back to this enum lives here. Public: it is
+#: also what `agent.py` schedules an action's `kind` as, so that it matches
+#: one of `runner.EXECUTORS`'s keys rather than `Intervention.name`, which is
+#: prose meant for a human ("message with a pay link"), not a lookup key.
+SLUG = {
     Rung.SILENT_RETRY: "silent-retry",
     Rung.NUDGE: "nudge",
     Rung.REAUTHORISATION: "reauthorisation",
@@ -58,7 +61,7 @@ _SLUG = {
 
 
 def _cost(rung: Rung) -> int:
-    return POLICY.ladder_rung_costs_paise[_SLUG[rung]]
+    return POLICY.ladder_rung_costs_paise[SLUG[rung]]
 
 
 @dataclass(frozen=True)

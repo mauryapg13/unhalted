@@ -197,9 +197,60 @@ def test_a_broken_mandate_gets_a_reauthorisation_and_no_retry(tmp_path) -> None:
         assert "schedule" not in kinds, "a retry cannot fix an expired card"
         escalation = next(r for r in store.timeline(case.id) if r.decision_type == "escalation")
         assert "rung 3" in escalation.action
+        # The lookup key runner.EXECUTORS would need to actually execute
+        # this, not Intervention.name's prose — "re-authorisation link" was
+        # never a key anything matched, so this action could never run.
         assert [a["kind"] for a in store.pending_actions(case_id=case.id)] == [
-            "re-authorisation link"
+            "reauthorisation"
         ]
+    finally:
+        store.close()
+
+
+def test_a_notification_gap_nudge_actually_runs_through_run_due(tmp_path, monkeypatch) -> None:
+    """The scheduling test above only proves the row looks right. This proves
+    the row is *usable* — the same claim `agent.py` made about NUDGE for
+    months while `run_due` silently found nothing to claim.
+
+    `kind` had been `Intervention.name` ("message with a pay link"), never a
+    key in `runner.EXECUTORS`, and `scheduled_for` had been `None`, which the
+    claiming query's `scheduled_for <= now` can never satisfy. Either fault
+    alone would have kept this at `claimed == 0` forever; a test asserting
+    only the `kind` string, as the one above does, cannot catch that.
+    """
+    from datetime import datetime
+    from unittest.mock import patch
+
+    from unhalted.agent import handle_failure
+    from unhalted.models import FailureSignal
+    from unhalted.runner import run_due
+    from unhalted.shell import paylink
+    from unhalted.shell.windows import IST
+    from unhalted.store import Store
+
+    store = Store(str(tmp_path / "n.db"))
+    try:
+        now = datetime(2026, 9, 20, 11, 0, tzinfo=IST)  # inside contact hours
+        signal = FailureSignal(
+            payment_id="pay_NOAUTH", customer_ref="cust_n", amount_paise=49900,
+            occurred_at=now, source="test",
+            method="upi", error_reason="authentication_failed", error_source="customer",
+        )
+        case = handle_failure(store, signal, now=now)
+
+        pending = store.pending_actions(case_id=case.id)
+        assert [a["kind"] for a in pending] == ["nudge"]
+        assert pending[0]["scheduled_for"] is not None, (
+            "an action due at None can never satisfy run_due's `<= now` claim"
+        )
+
+        # No real network call to Razorpay for a pay link in a test.
+        with patch.object(paylink, "create_payment_link", return_value=None):
+            report = run_due(store, now=now)
+
+        assert report.claimed == 1, "the nudge row must actually be claimable"
+        assert report.done == 1, "and the registered nudge executor must run it"
+        assert store.pending_actions(case_id=case.id) == []
     finally:
         store.close()
 

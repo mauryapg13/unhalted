@@ -188,7 +188,14 @@ def handle_failure(
     )
 
     if rung is not ladder.Rung.SILENT_RETRY:
-        store.schedule_action(case.id, case.customer_ref, ladder.LADDER[rung].name, None, now)
+        # `kind` must be the lookup key `runner.EXECUTORS` actually holds
+        # ("nudge"), not `Intervention.name` ("message with a pay link") —
+        # prose meant for a human, not a dict key nothing was ever going to
+        # match. Due now, not unscheduled: `execute_nudge` already checks
+        # contact hours itself and defers to the next allowed one if needed,
+        # the same as a retry does; a nudge with no due time at all could
+        # never become due for `run_due` to find in the first place.
+        store.schedule_action(case.id, case.customer_ref, ladder.SLUG[rung], now, now)
         return store.get_case(case.id) or case
 
     # Before any retry is scheduled, the money has to be permissible. This is
