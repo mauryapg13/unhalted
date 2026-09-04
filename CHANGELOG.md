@@ -16,6 +16,16 @@
   Exists because the same NPCI-band concept was already duplicated, and wrongly diverged, across
   three separate code paths in this project (see `BREAKAGE.md`) — one file, loaded once, is the
   fix for that entire bug class, not only the specific instances of it found so far.
+- `scripts/propose_policy_change.py` and `core/policy_change.py` — reads free text describing a
+  regulatory change and proposes a field-level diff against `config/policy.yaml`. Same distance
+  between recommending and acting as everywhere else the model touches something that matters: it
+  never writes to the file, a proposed field outside a fixed closed set is refused before being
+  shown, and a proposed value's quote is checked against the actual input text (reusing the same
+  evidence check reply parsing already used, now shared via `core/evidence.py`). Backoff tiers,
+  confidence thresholds and reply-policy thresholds are deliberately not proposable — those are
+  this project's own risk tolerance, not something a circular states. Smoke-tested live against a
+  real NPCI-circular-shaped text: correctly proposed an exact band change, correctly declined to
+  guess at a vaguely-worded mention, correctly treated "unchanged" as nothing to propose.
 
 ### Changed
 - The batch report's modelled money table (Part two) now leads, ahead of the counted facts (Part
