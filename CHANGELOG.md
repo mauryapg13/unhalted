@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Fixed
+- Every hard stop, and a reply's `needs_human` path, writes a real `stop` audit record — but
+  `scripts/schedule.py`'s live view only ever surfaced one from a *cancelled pending-action row*,
+  which a stop landing on a case with nothing left queued (a nudge that had already delivered, say)
+  never produces. Found live: a cancellation reply correctly held a case for a human, and the
+  already-running scheduler showed nothing at all for it. `audit_lines()` now also renders `stop`
+  (as `STOPPED`) and `reply` (as `REPLY`, printed before whatever it caused). Checked against every
+  `decision_type` actually written anywhere in the codebase to confirm these were the only two
+  silently dropped. Recorded in `BREAKAGE.md`.
 - `scripts/schedule.py`'s live view stamped a backfilled execution with the poll tick that noticed
   it, not `record.at` — the time it actually happened. A rehearsed `--at 08:00` execution, watched
   by an already-running scheduler polling real time, displayed at whatever second the viewer

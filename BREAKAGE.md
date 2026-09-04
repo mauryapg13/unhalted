@@ -628,3 +628,45 @@ asserts the line shows the record's own time, not the poll's.
 learned about something is the instant that thing happened — the same distinction `--at` itself
 exists to make loudly for a single run, quietly lost the moment a second process started reading
 that run's audit trail instead of producing it.
+
+---
+
+### A hard stop with nothing pending to cancel was invisible in the scheduler
+**Date:** 2026-09-05
+
+**What happened:** live-testing `scripts/session.py --scenario authentication_failed`, a reply of
+"cancel karo" correctly moved the case to `held-for-human` — visible in `session.py`'s own output.
+The already-running `scripts/schedule.py`, watching the same database, showed nothing at all for
+it: the last line it printed was the earlier nudge delivery. Asked directly: "the scheduler doesn't
+show all the processes... in case of not paid it's supposed to show other stuff as well why doesn't
+it show that?"
+
+**Why:** every one of the nine hard stops, and a reply's `needs_human` path, writes a real
+`decision_type="stop"` audit record — `agent.py`'s `apply_stop` and `handle_reply` both do, twelve
+call sites across the codebase. But `scripts/schedule.py` had two ways to surface an event, and
+neither covered it: `cancellation_event()` only ever fires from a *cancelled pending-action row*,
+and by the time this reply arrived the nudge had already executed — nothing was left pending to
+cancel, so `cancel_pending()` correctly touched zero rows and produced nothing for it to render.
+`audit_lines()` was the other path, but it only ever looked at `execution`, `human-review` and
+`recovery` records — `stop` was never in the set at all, regardless of whether anything got
+cancelled. A stop landing on a case with nothing queued has been silently invisible in the live
+scheduler view since the file was written; it took a case reaching that exact state live to surface
+it. `reply` — the record explaining *why* a stop fired — had the identical gap.
+
+**What changed:** `audit_lines()` now also renders `reply` (as `REPLY`, printed before whatever it
+caused, matching the cause-before-effect ordering `cancellation_event` already gives cancellations)
+and `stop` (as `STOPPED`, using the record's own action and outcome text rather than assuming a
+reason). Checked against every `decision_type` actually written anywhere in the codebase, not
+guessed at, to confirm these were the only two of nine types `audit_lines` was silently dropping
+that represent a real, user-visible event (`diagnosis`, `escalation`, `ingest`, `schedule` all
+already surface indirectly through the pending-action lifecycle or are session-terminal-only by
+design). Two new tests exercise the real `apply_stop` and a hand-built `reply` record directly.
+Fixing this also exposed that the shared test fixture `held_case` had been relying on this exact
+bug — its own low-confidence diagnosis writes an identical `stop` record that every test using it
+was silently not seeing; every affected test now primes `seen` with the fixture's own baseline
+before asserting on what it adds.
+
+**The lesson:** an event type never being rendered is not the same claim as an event type never
+occurring — `stop` fires from twelve places in this codebase and none of them were ever silent, the
+viewer was. The fixture bug is the same shape one level down: a test's assumed baseline of "nothing
+happened yet" was never actually true, it was just never shown.

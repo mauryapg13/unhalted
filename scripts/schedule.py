@@ -58,6 +58,8 @@ STYLE = {
     "REVIEWED": tui.VIOLET,
     "RECOVERED": tui.GREEN,
     "ESCALATED": tui.RED,
+    "REPLY": tui.VIOLET,
+    "STOPPED": tui.RED,
 }
 
 #: Cancellation reasons that mean "this case now needs a person" — every stop
@@ -122,6 +124,16 @@ def audit_lines(
     recovery link — is the same shape of gap: the case closes in the store,
     and nothing here said so until this branch existed.
 
+    Every hard stop is the same shape of gap again, found later: `apply_stop`
+    and a reply's `needs_human` path both write a `stop` record regardless of
+    whether anything was actually pending to cancel. `cancellation_event`
+    below only ever fires from a *cancelled action row* — so a stop landing
+    on a case with nothing left pending (a nudge that had already delivered,
+    say) cancelled zero rows and produced zero lines, even though the case
+    really did just move to `held-for-human` or close outright. `reply` is
+    included alongside it so the cause prints before the effect it caused,
+    the same ordering `cancellation_event` already gives cancellations.
+
     Each line is stamped with `record.at` — when the decision actually
     happened — not the poll tick that first noticed it. A worker executing
     under `--at` (rehearsal) or a backfill on a freshly started scheduler
@@ -133,7 +145,9 @@ def audit_lines(
     lines: list[str] = []
     for case in store.all_cases():
         for record in store.timeline(case.id):
-            if record.decision_type not in ("execution", "human-review", "recovery"):
+            if record.decision_type not in (
+                "execution", "human-review", "recovery", "reply", "stop",
+            ):
                 continue
             marker = (record.case_id, record.at.isoformat(), record.action)
             if marker in seen:
@@ -147,6 +161,15 @@ def audit_lines(
                 continue
             if record.decision_type == "recovery":
                 lines.append(event("RECOVERED", case.id, record.action, now=record.at))
+                continue
+            if record.decision_type == "reply":
+                lines.append(event("REPLY", case.id, record.outcome or record.action, now=record.at))
+                continue
+            if record.decision_type == "stop":
+                lines.append(
+                    event("STOPPED", case.id, f"{record.action} — {record.outcome}",
+                          now=record.at)
+                )
                 continue
             state = record.action.split(":")[-1].strip().upper()
             kind = {

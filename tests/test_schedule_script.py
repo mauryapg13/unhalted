@@ -15,7 +15,7 @@ from datetime import datetime
 
 import pytest
 
-from unhalted.agent import handle_failure, mark_recovered
+from unhalted.agent import apply_stop, handle_failure, mark_recovered
 from unhalted.models import AuditRecord, CaseState, FailureSignal
 from unhalted.shell.windows import IST
 from unhalted.store import Store
@@ -33,7 +33,7 @@ def schedule():
 
 
 @pytest.fixture
-def held_case(tmp_path):
+def held_case(tmp_path, schedule):
     store = Store(str(tmp_path / "schedule.db"))
     signal = FailureSignal(
         payment_id="pay_SCHED", customer_ref="cust_sched", amount_paise=49900,
@@ -42,12 +42,20 @@ def held_case(tmp_path):
     )
     case = handle_failure(store, signal, now=NOW)
     store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
-    yield store, case
+    # `payment_risk_check_failed` lands at UNKNOWN, 0.0 confidence, which
+    # auto-holds *and* writes its own real `stop` record ("awaiting human
+    # review") on the way — exactly the shape `audit_lines` now surfaces
+    # (see the STOPPED fix below). Real, but incidental to what each test
+    # below adds on top of an already-held case; primed into `seen` once
+    # here so a test's own assertions see only what it added.
+    seen: set[tuple[str, str, str]] = set()
+    schedule.audit_lines(store, seen, now=NOW)
+    yield store, case, seen
     store.close()
 
 
 def test_a_reviewer_decision_is_reported(schedule, held_case) -> None:
-    store, case = held_case
+    store, case, seen = held_case
     store.record(
         AuditRecord(
             case_id=case.id, at=NOW, decision_type="human-review",
@@ -55,7 +63,7 @@ def test_a_reviewer_decision_is_reported(schedule, held_case) -> None:
             human_actor="priya", outcome="decided by priya",
         )
     )
-    lines = schedule.audit_lines(store, set(), now=NOW)
+    lines = schedule.audit_lines(store, seen, now=NOW)
     assert len(lines) == 1
     assert "REVIEWED" in lines[0]
     assert "approved" in lines[0]
@@ -63,7 +71,7 @@ def test_a_reviewer_decision_is_reported(schedule, held_case) -> None:
 
 
 def test_the_same_decision_is_not_reported_twice(schedule, held_case) -> None:
-    store, case = held_case
+    store, case, seen = held_case
     store.record(
         AuditRecord(
             case_id=case.id, at=NOW, decision_type="human-review",
@@ -71,7 +79,6 @@ def test_the_same_decision_is_not_reported_twice(schedule, held_case) -> None:
             human_actor="priya", outcome="decided by priya",
         )
     )
-    seen: set[tuple[str, str, str]] = set()
     first = schedule.audit_lines(store, seen, now=NOW)
     second = schedule.audit_lines(store, seen, now=NOW)
     assert len(first) == 1
@@ -81,13 +88,52 @@ def test_the_same_decision_is_not_reported_twice(schedule, held_case) -> None:
 def test_a_recovery_is_reported(schedule, held_case) -> None:
     """A customer paying through the recovery link closes the case in the
     store; without this branch, nothing here said so."""
-    store, case = held_case
+    store, case, seen = held_case
     mark_recovered(store, case.id, payment_id="pay_XYZ", amount_paise=49900, now=NOW)
 
-    lines = schedule.audit_lines(store, set(), now=NOW)
+    lines = schedule.audit_lines(store, seen, now=NOW)
     assert len(lines) == 1
     assert "RECOVERED" in lines[0]
     assert "paid via recovery link" in lines[0]
+
+
+def test_a_reply_is_reported(schedule, held_case) -> None:
+    """The cause, not just its effect — a reply is what leads to a stop or a
+    cancellation, and printed nowhere until now the log started at whatever
+    it caused instead."""
+    store, case, seen = held_case
+    store.record(
+        AuditRecord(
+            case_id=case.id, at=NOW, decision_type="reply",
+            action="parsed", inputs={"reply": "stop"}, rules_fired=["STOP_RULE:OPT_OUT"],
+            outcome="they asked not to be contacted",
+        )
+    )
+    lines = schedule.audit_lines(store, seen, now=NOW)
+    assert len(lines) == 1
+    assert "REPLY" in lines[0]
+    assert "they asked not to be contacted" in lines[0]
+
+
+def test_a_stop_that_cancels_nothing_still_shows(schedule, held_case) -> None:
+    """`apply_stop` (and a reply's `needs_human` path) write a `stop` record
+    regardless of whether anything was pending to cancel. `cancellation_event`
+    only ever fires from a *cancelled action row*, so a stop landing on a
+    case with nothing left pending — a nudge that had already delivered, say
+    — cancelled zero rows and produced zero lines here, even though the case
+    really did just stop. `held_case` is itself proof this happens for real:
+    its own UNKNOWN diagnosis auto-holds with nothing ever scheduled."""
+    store, case, seen = held_case
+    assert store.pending_actions(case_id=case.id) == [], "nothing here to cancel"
+
+    cancelled = apply_stop(
+        store, "OPT_OUT", case_id=case.id, customer_ref=case.customer_ref, now=NOW,
+    )
+    assert cancelled == 0, "the exact condition that used to hide this entirely"
+
+    lines = schedule.audit_lines(store, seen, now=NOW)
+    assert len(lines) == 1
+    assert "STOPPED" in lines[0]
 
 
 def test_a_backfilled_execution_shows_when_it_really_happened(schedule, held_case) -> None:
@@ -98,7 +144,7 @@ def test_a_backfilled_execution_shows_when_it_really_happened(schedule, held_cas
     whatever second this viewer happened to be watching — which for anything
     outside contact hours reads as a violation that never occurred.
     """
-    store, case = held_case
+    store, case, seen = held_case
     real_time = datetime(2026, 9, 3, 23, 0, tzinfo=IST)  # outside contact hours
     store.record(
         AuditRecord(
@@ -107,7 +153,7 @@ def test_a_backfilled_execution_shows_when_it_really_happened(schedule, held_cas
             outcome="message delivered",
         )
     )
-    lines = schedule.audit_lines(store, set(), now=real_time)
+    lines = schedule.audit_lines(store, seen, now=real_time)
     assert len(lines) == 1
     assert NOW.strftime("%H:%M:%S") in lines[0]
     assert real_time.strftime("%H:%M:%S") not in lines[0]
@@ -146,7 +192,7 @@ def test_a_recovered_cancellation_is_not_reported_twice(schedule) -> None:
 
 def test_an_unattributed_decision_still_says_someone_decided(schedule, held_case) -> None:
     """`human_actor` is optional on the model; the log must not go silent for it."""
-    store, case = held_case
+    store, case, seen = held_case
     store.record(
         AuditRecord(
             case_id=case.id, at=NOW, decision_type="human-review",
@@ -154,5 +200,5 @@ def test_an_unattributed_decision_still_says_someone_decided(schedule, held_case
             outcome="decided",
         )
     )
-    lines = schedule.audit_lines(store, set(), now=NOW)
+    lines = schedule.audit_lines(store, seen, now=NOW)
     assert "a reviewer" in lines[0]
