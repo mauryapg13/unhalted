@@ -194,7 +194,7 @@ def main() -> int:
     print(f"  {report.render()}")
 
     # `contacted` is about the diagnosis; this is about what actually
-    # happened this pass. A contact rung deferred by contact hours (the same
+    # happened. A contact rung deferred by contact hours (the same
     # 08:00-19:00 window this system enforces everywhere else) sent nothing
     # at all — checked directly against the audit trail's own record of the
     # execution, not assumed from the rung alone.
@@ -202,7 +202,15 @@ def main() -> int:
         (r for r in reversed(store.timeline(case.id)) if r.decision_type == "execution"),
         None,
     )
-    delivered = contacted and execution is not None and execution.action.endswith(": done")
+    ever_delivered = contacted and execution is not None and execution.action.endswith(": done")
+    # A separate question from `ever_delivered`: `session.py` is idempotent
+    # (deterministic payment_id, matched back to the same case), so a second
+    # run against an already-contacted case reports claimed=0, prints no box
+    # at all, and `execution` above is still the *earlier* run's record. Only
+    # `execution.at == now` proves this exact pass is what produced it — a
+    # `record.at` equal to `now` is possible only because `runner._record`
+    # writes the very `now` this call passed in, verbatim.
+    delivered_this_pass = ever_delivered and execution.at == now
 
     if not contacted:
         rule("4. Nobody was contacted, so there is nothing to reply to")
@@ -217,7 +225,7 @@ def main() -> int:
             f"authentication_failed` instead — the real captured payments only ever produce "
             f"this diagnosis (issue #8).{RESET}"
         )
-    elif not delivered:
+    elif not ever_delivered:
         rule("4. Nothing has reached the customer yet")
         detail = execution.outcome if execution else "nothing executed this pass"
         print(f"  {DIM}{detail} — there is nothing yet for a reply loop to answer.{RESET}")
@@ -227,11 +235,18 @@ def main() -> int:
         )
     else:
         rule("4. Your turn — reply as the customer")
-        print(
-            f"  {DIM}That boxed text above is what just arrived on your phone. Type your "
-            f"reply to it and press enter, Ctrl-D to finish — or just pay the link: this ends "
-            f"on its own the moment the webhook confirms it.{RESET}"
-        )
+        if delivered_this_pass:
+            print(
+                f"  {DIM}That boxed text above is what just arrived on your phone. Type your "
+                f"reply to it and press enter, Ctrl-D to finish — or just pay the link: this "
+                f"ends on its own the moment the webhook confirms it.{RESET}"
+            )
+        else:
+            print(
+                f"  {DIM}This case was already contacted in an earlier run — {case.id} matched "
+                f"back to it, so nothing new printed above this time. Reply as if answering "
+                f"that earlier message, Ctrl-D to finish — or pay the link it carried.{RESET}"
+            )
 
         while True:
             # Checked before every read, not just after one: the webhook that

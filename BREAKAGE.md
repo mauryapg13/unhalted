@@ -670,3 +670,35 @@ before asserting on what it adds.
 occurring — `stop` fires from twelve places in this codebase and none of them were ever silent, the
 viewer was. The fixture bug is the same shape one level down: a test's assumed baseline of "nothing
 happened yet" was never actually true, it was just never shown.
+
+---
+
+### The customer terminal claimed a message "just arrived" from an earlier run
+**Date:** 2026-09-05
+
+**What happened:** `scripts/session.py --scenario authentication_failed`, run a second time
+against a database already holding that case, printed step 3 with no boxed message at all
+(`claimed=0 done=0` — correctly, nothing was due) and then step 4 said "That boxed text above is
+what just arrived on your phone" anyway, pointing at nothing. Flagged directly, pasting the exact
+output: "you wiped the text box."
+
+**Why:** the previous fix (the "nothing has reached the customer yet" entry above) checked whether
+the case had *ever* been delivered a message, by scanning the timeline for the most recent
+execution record — right for deciding whether to offer the reply loop at all, but that same variable
+was reused for the "boxed text above" sentence, which claims something about *this specific run*.
+`session.py` matches back to the same case on a repeat run (deterministic `payment_id`, same
+guard the redelivery fix relies on) — so a case contacted in an earlier invocation still reads as
+"delivered" on this one, even though this pass's `run_due()` found nothing due and printed no box.
+
+**What changed:** split into two checks. `ever_delivered` (unchanged) still gates whether the reply
+loop is offered. A new `delivered_this_pass` additionally requires `execution.at == now` — exact
+equality is reliable because `runner._record` writes the literal `now` a call was given, verbatim,
+so a record from an earlier invocation can never equal the current one's clock. When a case reads
+as contacted but not in this pass, step 4 now says so plainly — reply as if answering the earlier
+message — instead of pointing at a box that never printed. Verified live: injected once (box
+prints, step 4 references it), reran against the same database (no box, step 4 says the case was
+already contacted in an earlier run).
+
+**The lesson:** the previous fix already knew "contacted" and "contacted right now" were different
+questions — it built `ever_delivered` specifically to answer the first one correctly. It just never
+noticed the display code still needed the second answer too, and reused the first for both.

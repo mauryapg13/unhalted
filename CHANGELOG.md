@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- `scripts/session.py --scenario` run a second time against the same database matches back to the
+  same case (by design — deterministic `payment_id`) and correctly prints no message box, since
+  nothing was newly due. Step 4 still said "that boxed text above is what just arrived" anyway,
+  pointing at nothing — it checked whether the case was *ever* delivered a message, reusing that
+  for a claim about *this run* specifically. Now split: a new `execution.at == now` check requires
+  the delivery to be from this exact pass before saying so; a repeat run says plainly that the case
+  was already contacted earlier instead. Recorded in `BREAKAGE.md`.
 - Every hard stop, and a reply's `needs_human` path, writes a real `stop` audit record — but
   `scripts/schedule.py`'s live view only ever surfaced one from a *cancelled pending-action row*,
   which a stop landing on a case with nothing left queued (a nudge that had already delivered, say)
