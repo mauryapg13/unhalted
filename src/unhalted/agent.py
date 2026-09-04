@@ -544,3 +544,32 @@ def resume_after_review(
         )
     )
     return decision
+
+
+def mark_recovered(
+    store: Store, case_id: str, *, payment_id: str, amount_paise: int,
+    now: datetime | None = None,
+) -> int:
+    """The customer paid through the recovery link. Returns how many pending
+    actions it cancelled.
+
+    Closes the loop `resume_after_review` opens: a retry re-armed after a
+    person's decision, or one already scheduled, has nothing left to do once
+    the money has arrived by a different route. This is not a stop rule —
+    nothing is wrong, the case is simply finished — so it does not go through
+    `stops.rule()`, which exists for refusals, not successes.
+    """
+    now = windows.as_ist(now or datetime.now(tz=windows.IST))
+    cancelled = store.cancel_pending("RECOVERED", case_id=case_id)
+    store.set_state(case_id, CaseState.RECOVERED)
+    store.record(
+        AuditRecord(
+            case_id=case_id,
+            at=now,
+            decision_type="recovery",
+            action="paid via recovery link",
+            inputs={"payment_id": payment_id, "amount_paise": amount_paise},
+            outcome=f"cancelled {cancelled} pending action(s); case recovered",
+        )
+    )
+    return cancelled

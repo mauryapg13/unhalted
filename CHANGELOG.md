@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### Added
+- The loop `shell/paylink.py` opens now closes. A payment link is tagged with `reference_id=case.id`
+  (a documented field, verified against `api/payments/payment-links/create-standard.md`) when
+  created; `ingest/webhooks.py` now handles `payment_link.paid` (verified against
+  `webhooks/payment-links.md`), reads that reference straight back off the payload, and calls the
+  new `agent.mark_recovered` — the case moves to `CaseState.RECOVERED` (defined since the model was
+  written, never previously set anywhere), every pending retry and nudge is cancelled, and the real
+  payment id and amount are recorded in the audit trail. A paid link for an unknown case, or one
+  with no reference_id at all, is acknowledged and ignored rather than raised. This is what makes
+  "the customer paid a different way" a real, observable event instead of a retry quietly running
+  forever against money that already arrived.
+- `scripts/schedule.py` distinguishes an escalation from a routine cancellation. `HELD_FOR_HUMAN`,
+  `DISPUTE`, `DISTRESS`, `CHARGEBACK` and `REG_HOLD` — every stop whose terminal state is
+  `CaseState.HELD_FOR_HUMAN` — now render as `ESCALATED`, not `CANCELLED`; a promise-to-pay
+  realignment or a routine stop still reads as `CANCELLED`, since it is one. A recovery is no
+  longer double-reported — it already gets its own `RECOVERED` event from the audit trail, and the
+  matching `cancel_pending("RECOVERED", ...)` entry is now suppressed rather than printed a second
+  time as an unlabelled cancellation.
 - `config/policy.yaml` and `unhalted.policy` — a single, validated source for every numeric
   threshold this system enforces: NPCI bands, contact hours, the retry cap, backoff tiers,
   confidence thresholds, reply-policy thresholds, ladder costs, mandate limits. Every module that
@@ -34,6 +51,10 @@
   fifteen screens later.
 
 ### Fixed
+- The README claimed Razorpay's error-scenario test cards "yield specific documented error
+  reasons rather than generic failures." That was already settled negatively — issue #8, tested
+  on both checkout surfaces available to this account — and the README had simply never been
+  updated after the finding. Corrected to match `CHECKPOINTS.md`'s own recorded fact.
 - A redelivered payment failure was scheduling a second retry. `handle_failure` gated diagnosing
   and scheduling on whether *this call* had just created the case row, which is a different
   question from whether the signal had actually been worked — `ingest/webhooks.py` creates that

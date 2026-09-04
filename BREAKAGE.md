@@ -412,3 +412,27 @@ durability pre-creation in `webhooks.py` was added for an honest reason — a si
 slow work starts — and nobody re-checked what it did to a flag a different function was reading
 for an unrelated decision three calls away. Found the same way the double-claim bug was: by
 actually running the scenario the architecture was supposed to handle, not by reasoning about it.
+
+---
+
+### A settled fact never made it back to the README
+**Date:** 2026-09-04
+
+**What happened:** answering a live demo question about why every real webhook diagnoses the same
+way, `README.md`'s own "Honesty about the data" section — the one section whose whole job is to
+say what's real — claimed Razorpay's error-scenario test cards "yield specific documented error
+reasons rather than generic failures." Issue #8 had already tested that, twice, and closed it
+answered negatively.
+
+**Why:** the finding went into `CHECKPOINTS.md`'s Known facts table and the issue itself, both the
+right places — but the README paragraph making the opposite claim was written before the test ran
+and nobody came back to it afterward. Two documents disagreed with each other and nothing checked.
+
+**What changed:** the README now states what issue #8 actually found. `CHECKPOINTS.md` was already
+correct and needed no change — this was purely the README lagging behind a fact that had already
+been settled elsewhere.
+
+**The lesson:** "recorded in CHECKPOINTS.md so nobody spends another twenty minutes on it" (issue
+#8's own closing line) prevents re-litigating a question. It does not prevent a different document
+from quietly going on asserting the answer that question replaced. A fact settled once needs
+checking against everywhere it was claimed, not just recording once where it was settled.

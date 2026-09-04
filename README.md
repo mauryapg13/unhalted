@@ -100,9 +100,12 @@ This matters more than the numbers, so it is stated up front rather than in a fo
 
 **Real.** Mandate registration, token state, webhooks and signatures, payment objects and their
 `error_reason` values, and payment-status verification all run against Razorpay test mode. Failed
-payments are produced with Razorpay's error-scenario test cards, which yield specific documented
-error reasons rather than generic failures. Mandate-state failures — expiry, `max_amount` breach,
-revocation — are triggered against real mandates.
+payments are produced through a real hosted checkout, with a real signature-verified webhook
+arriving at a real endpoint. What they do **not** yield is a specific documented error reason —
+tested twice, on both checkout surfaces available to this account, Razorpay's error-scenario test
+cards return the generic `payment_failed` / `gateway` regardless of which card is used (issue #8,
+closed as answered). The taxonomy's other 15 documented card reasons are mapped and unit-tested
+against Razorpay's published definitions; only this one has travelled the full chain end to end.
 
 **Replayed.** Batch volume. Razorpay test mode cannot produce an `insufficient_funds` decline on a
 UPI Autopay debit for anyone, and 500 real checkout interactions are not feasible by hand. The

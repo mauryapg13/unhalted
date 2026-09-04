@@ -265,6 +265,81 @@ def test_a_payment_in_another_currency_is_refused_at_ingest() -> None:
         from_payment_failed(event("USD"))
 
 
+# -- payment_link.paid ---------------------------------------------------------
+
+
+def _open_a_case(client) -> str:
+    from unhalted.agent import handle_failure
+    from unhalted.models import FailureSignal
+    from unhalted.shell.windows import IST
+
+    now = datetime(2026, 9, 4, 11, 0, tzinfo=IST)
+    signal = FailureSignal(
+        payment_id="pay_TOCLOSE", customer_ref="cust_close", amount_paise=49900,
+        occurred_at=now, source="test", method="card",
+        error_reason="insufficient_funds", error_source="customer",
+    )
+    case = handle_failure(client.store, signal, now=now)
+    return case.id
+
+
+def test_a_paid_recovery_link_closes_the_case(client) -> None:
+    """reference_id is what shell/paylink.py tags a link with, and what this
+    event echoes back — the whole loop, tested end to end."""
+    case_id = _open_a_case(client)
+    event = load("payment_link_paid")
+    event["payload"]["payment_link"]["entity"]["reference_id"] = case_id
+
+    r = post(client, event, event_id="evt_paid")
+
+    assert r.status_code == 200
+    assert r.json() == {"status": "recovered", "case_id": case_id}
+    case = client.store.get_case(case_id)
+    assert case.state.value == "recovered"
+    assert client.store.pending_actions(case_id=case_id) == []
+
+
+def test_a_paid_link_for_an_unknown_case_is_ignored_not_raised(client) -> None:
+    """Razorpay's own example reference_id, "23" — no such case exists here."""
+    event = load("payment_link_paid")
+    r = post(client, event, event_id="evt_unknown")
+
+    assert r.status_code == 200
+    assert r.json()["status"] == "ignored"
+
+
+def test_a_paid_link_with_no_reference_id_is_ignored_not_raised(client) -> None:
+    event = load("payment_link_paid")
+    event["payload"]["payment_link"]["entity"]["reference_id"] = None
+    r = post(client, event, event_id="evt_noref")
+
+    assert r.json()["status"] == "ignored"
+
+
+def test_a_redelivered_paid_event_does_not_reclose_the_case(client) -> None:
+    case_id = _open_a_case(client)
+    event = load("payment_link_paid")
+    event["payload"]["payment_link"]["entity"]["reference_id"] = case_id
+
+    first = post(client, event, event_id="evt_dup_paid")
+    second = post(client, event, event_id="evt_dup_paid")
+
+    assert first.json()["status"] == "recovered"
+    assert second.json()["status"] == "duplicate"
+
+
+def test_the_recovery_is_recorded_in_the_audit_trail(client) -> None:
+    case_id = _open_a_case(client)
+    event = load("payment_link_paid")
+    event["payload"]["payment_link"]["entity"]["reference_id"] = case_id
+    post(client, event, event_id="evt_audit")
+
+    records = client.store.timeline(case_id)
+    recovery = next(r for r in records if r.decision_type == "recovery")
+    assert recovery.action == "paid via recovery link"
+    assert recovery.inputs["payment_id"] == "pay_Qfldmt5StKZFCB"
+
+
 def test_the_run_due_endpoint_is_the_same_pass_over_http() -> None:
     """#31. A deployment without a long-running process still needs a clock;
     an external scheduler posting here is that clock."""

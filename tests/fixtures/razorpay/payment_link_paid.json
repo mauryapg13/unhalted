@@ -1,0 +1,141 @@
+{
+  "account_id": "acc_OU2H3nkLn9jDVo",
+  "contains": [
+    "payment_link",
+    "order",
+    "payment"
+  ],
+  "created_at": 1749618314,
+  "entity": "event",
+  "event": "payment_link.paid",
+  "payload": {
+    "order": {
+      "entity": {
+        "account_number": null,
+        "amount": 1000,
+        "amount_due": 0,
+        "amount_paid": 1000,
+        "app_offer": false,
+        "attempts": 1,
+        "authorized": true,
+        "bank": null,
+        "bank_account": null,
+        "checkout_config_id": null,
+        "created_at": 1749618325,
+        "currency": "INR",
+        "customer_id": null,
+        "discount": false,
+        "first_payment_min_amount": null,
+        "force_offer": null,
+        "id": "QflczVVaNJciLq",
+        "late_auth_config_id": null,
+        "merchant_id": "OU2H3nkLn9jDVo",
+        "method": null,
+        "notes": [],
+        "offers": {},
+        "order_metas": [],
+        "order_relationships": [],
+        "partial_payment": false,
+        "payer_name": null,
+        "payment_capture": true,
+        "product_id": "QflcnnZqCekuvL",
+        "product_type": "payment_link_v2",
+        "provider_context": null,
+        "public_key": "rzp_live_XXXXXXXXXXXXXX",
+        "public_response": null,
+        "receipt": "23",
+        "reference2": null,
+        "reference3": null,
+        "reference4": null,
+        "reference5": null,
+        "reference6": null,
+        "reference7": null,
+        "reference8": null,
+        "source": null,
+        "status": "paid",
+        "transfers": null,
+        "updated_at": 1749618372
+      }
+    },
+    "payment": {
+      "entity": {
+        "acquirer_data": {
+          "rrn": "103608848276"
+        },
+        "amount": 1000,
+        "amount_refunded": 0,
+        "amount_transferred": 0,
+        "bank": null,
+        "base_amount": 1000,
+        "captured": true,
+        "card": null,
+        "card_id": null,
+        "contact": "+919876543210",
+        "created_at": 1749618371,
+        "currency": "INR",
+        "description": "#QflcnnZqCekuvL",
+        "email": null,
+        "entity": "payment",
+        "error_code": null,
+        "error_description": null,
+        "error_reason": null,
+        "error_source": null,
+        "error_step": null,
+        "fee": 24,
+        "fee_bearer": "platform",
+        "id": "pay_Qfldmt5StKZFCB",
+        "international": false,
+        "invoice_id": null,
+        "method": "upi",
+        "notes": [],
+        "order_id": "order_QflczVVaNJciLq",
+        "refund_status": null,
+        "status": "captured",
+        "tax": 4,
+        "upi": {
+          "payer_account_type": "bank_account",
+          "vpa": "gaurav.kumar@exampleupi"
+        },
+        "vpa": "gaurav.kumar@exampleupi",
+        "wallet": null
+      }
+    },
+    "payment_link": {
+      "entity": {
+        "accept_partial": false,
+        "amount": 1000,
+        "amount_paid": 1000,
+        "cancelled_at": 0,
+        "created_at": 1749618314,
+        "currency": "INR",
+        "customer": {
+          "contact": "9000090000",
+          "email": "gauravkumar@example.com"
+        },
+        "description": "Test Payment",
+        "expire_by": 0,
+        "expired_at": 0,
+        "first_min_partial_amount": 0,
+        "id": "plink_QflcnnZqCekuvL",
+        "notes": null,
+        "notify": {
+          "email": false,
+          "sms": false,
+          "whatsapp": false
+        },
+        "order_id": "order_QflczVVaNJciLq",
+        "reference_id": "23",
+        "reminder_enable": false,
+        "reminders": {
+          "status": "failed"
+        },
+        "short_url": "https://rzp.io/rzp/twH5w1Y",
+        "status": "paid",
+        "updated_at": 1749618371,
+        "upi_link": false,
+        "user_id": "HWPf1AudnADDV5",
+        "whatsapp_link": false
+      }
+    }
+  }
+}
