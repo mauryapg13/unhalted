@@ -460,3 +460,34 @@ been settled elsewhere.
 #8's own closing line) prevents re-litigating a question. It does not prevent a different document
 from quietly going on asserting the answer that question replaced. A fact settled once needs
 checking against everywhere it was claimed, not just recording once where it was settled.
+
+---
+
+### The taxonomy proposer's prompt warned against the exact mistake it then made
+**Date:** 2026-09-04
+
+**What happened:** the first live test of `scripts/propose_taxonomy_rule.py` — Razorpay's real
+`payment_risk_check_failed` documentation, "Payment declined due to risk checks... The source
+parameter would give additional clarity where the risk check failed" — came back `directness:
+DIRECT`. Its own `rationale` field, in the same response, said the specific cause "is not
+communicated." Those two statements contradict each other, and the model produced both at once.
+
+**Why:** the system prompt already says, in as many words: *"Never claim 'direct' for a reason
+their text says is ambiguous or unattributed."* This text is exactly that — Razorpay names three
+possible sources (Razorpay, Gateway, Issuer Bank) and says a separate parameter is needed to know
+which — and the model classified it as directly stated anyway, then wrote a rationale that
+correctly described why it shouldn't have.
+
+**What changed:** nothing in the prompt, yet. This is not a bug fixed by rereading the instruction
+harder — the instruction was already there, correctly worded, in the one response that violated
+it. What changed is confidence in why this project never lets a proposal write itself: a human
+reading this specific output would catch the contradiction between the field and its own
+justification in about two seconds, which is a much easier check than getting a model to reliably
+avoid making it in the first place.
+
+**The lesson:** a system prompt naming a failure mode is not the same as preventing it, the same
+lesson `BREAKAGE.md` already recorded once for a docstring naming a race condition six lines above
+the code that committed it. The difference here is that this was always the plan — `propose()`
+never writes to `core/taxonomy.py`, precisely because a model that can state the correct reasoning
+and still reach the wrong conclusion in the same breath is not a model whose conclusion should be
+trusted unread.

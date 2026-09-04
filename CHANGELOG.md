@@ -3,6 +3,24 @@
 ## [Unreleased]
 
 ### Added
+- `unhalted calibration` — whether confidence predicts outcome, measured on real terminal cases
+  only, never generated ones. Issue #7 could not be settled on generated data because the correct
+  class there is whatever the generator picked; `mark_recovered` gives some cases a real,
+  non-generated outcome for the first time, and this groups them by the confidence band their
+  diagnosis fell into. A band under 20 cases is shown, not hidden, but explicitly flagged as too
+  few to conclude anything from — the honest state of things right now, not a bug in the report.
+  Revoked and false-failure closures are excluded from the recovery rate entirely rather than
+  counted as failures, since recovery was never the live question for either.
+- `scripts/propose_taxonomy_rule.py` and `core/taxonomy_proposal.py` — every `UNKNOWN`-diagnosed
+  held case was previously a dead end: nothing fed it back toward closing the taxonomy gap that
+  caused it. This clusters held cases by their exact `(method, error_reason, error_source,
+  error_step)` — plain grouping, no model needed — and, for a chosen cluster, proposes a rule
+  grounded in Razorpay documentation supplied by the caller, using the same evidence-quote
+  discipline `policy_change.py` already established. Never writes to `core/taxonomy.py`. Found a
+  real instance of the exact failure mode the prompt explicitly warns against while testing this
+  live: the model marked a rule `DIRECT` while its own rationale admitted the cause "is not
+  communicated" — recorded in `BREAKAGE.md`, and the reason nothing here applies a proposal
+  automatically.
 - `tui.spin` — a shimmering label that runs while a blocking model call is in flight, on a
   background thread, and clears the moment it returns. Wired into the reviewer's briefing and
   `propose_policy_change.py`, the two places a script waits on a live call with the terminal

@@ -404,6 +404,52 @@ partial payment closes a case the way a full one does would misstate what happen
 
 ---
 
+### C9g — Confidence is measured against real outcomes, not just generated ones
+Issue #7 asked whether 0.90 and 0.70 are the right cut-points. C8 could not answer it on generated
+data, because the correct class there is whatever the generator picked — asking "did the confident
+ones do better" of data where confidence never had a chance to be wrong answers nothing.
+
+**Done when:** `unhalted calibration` groups every case with a real terminal outcome — recovered,
+unrecovered, or excluded because the customer revoked or it was never really a failure — by the
+confidence band its diagnosis fell into, and reports the recovery rate per band, with any band
+under 20 cases flagged as too few to conclude anything from rather than presented as a finding.
+
+**Why it exists.** `mark_recovered` (C9f) is the first thing in this project that gives a case a
+real, non-generated outcome. Before it, "is confidence calibrated" had no honest answer anywhere in
+this codebase — every other place the question comes up says so explicitly and moves on. This is
+the seam that becomes real evidence the moment real volume exists, rather than staying permanently
+unanswerable.
+
+**Not included:** a conclusion. Today's real volume is a handful of cases, and the report says so
+in the same words a small precision figure elsewhere in this project already does — shown, not
+hidden, and explicitly not claimed as calibration.
+
+---
+
+### C9h — A taxonomy gap is proposable, not just held
+Every case `diagnose()` cannot match sits `UNKNOWN`, held for a human, and until now that was the
+end of it — nothing fed the gap back toward closing it.
+
+**Done when:** `scripts/propose_taxonomy_rule.py` clusters held, genuinely unclassified cases by
+`(method, error_reason, error_source, error_step)` — plain grouping, no model call — and, for a
+chosen cluster, `core/taxonomy_proposal.py` proposes a rule grounded in Razorpay documentation
+supplied by the caller: a class, a directness, and a quote checked against the actual text, the
+same evidence discipline `policy_change.py` already established. Never writes to
+`core/taxonomy.py`.
+
+**Real finding, kept rather than quietly fixed.** The first live test — Razorpay's own
+`payment_risk_check_failed` documentation — came back `directness: DIRECT` while the model's own
+`rationale` in the same response said the cause "is not communicated." The system prompt already
+named this exact failure mode and the model made it anyway. Recorded in `BREAKAGE.md` as the
+reason nothing here applies a proposal automatically: a model that can state the correct reasoning
+and reach the wrong conclusion in the same breath is not one whose conclusion should be trusted
+unread, however carefully the prompt is worded.
+
+**Not included:** applying a proposal. Editing `core/taxonomy.py` is a person's action, the same
+distance between recommending and acting every other model call in this project keeps.
+
+---
+
 ### C10 — Submission ready
 Everything the form asks for exists and agrees with everything else.
 
