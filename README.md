@@ -56,6 +56,60 @@ logged with `source: rules-table` so the split is auditable rather than asserted
 Timing, caps, stops, spend limits and compliance checks are likewise not model decisions. They are
 regulation and policy, and they live in `src/unhalted/shell/` where they can be tested.
 
+## What every documented failure actually does
+
+The whole routing table, generated from the code rather than described. Every one of these resolves
+with no model call.
+
+**The source can outrank the reason.** Checked before anything else, because for these the reason is
+incidental:
+
+| `error_source` | Result | Why |
+|---|---|---|
+| `business` | held for a person, no retry, no contact | Razorpay: *"Business failures require corrective action rather than retries… simply retrying the same request won't resolve them."* The merchant's own configuration is wrong; the customer cannot fix it and a retry fails identically |
+
+**Where the source decides between two documented causes.** These are the cases the model exists
+for, resolved deterministically when Razorpay names a source and held when they do not:
+
+| `error_reason` | `error_source` | Diagnosis | Confidence | Entry rung |
+|---|---|---|---|---|
+| `payment_timed_out` | `customer` | notification-gap | 1.0 | nudge |
+| `payment_timed_out` | `bank` | recoverable-technical | 1.0 | silent retry |
+| `payment_timed_out` | *unstated* | recoverable-technical | 0.8 | silent retry |
+| `credit_failed` | `customer` | mandate-state-broken | 1.0 | re-authorisation |
+| `credit_failed` | *unstated* | recoverable-technical | **0.4** | *held — below threshold* |
+| `payment_failed` | `bank`, `issuer`, `issuer_bank` | recoverable-technical | 0.8 | silent retry |
+| `payment_failed` | *unstated* | recoverable-technical | 0.8 | silent retry |
+
+`credit_failed` without a source is the mechanism working: two documented causes, neither excluded,
+so confidence is capped at 1/2 and falls below the 0.70 threshold — it holds for a person rather
+than guessing which one it was.
+
+**Everything else**, where the reason alone settles it:
+
+| Entry rung | `error_reason` | Confidence |
+|---|---|---|
+| **nudge** — contact, with a payable link | `insufficient_fund`, `insufficient_funds` | 1.0 |
+| | `payment_collect_request_expired` | 1.0 |
+| | `authentication_failed`, `payment_declined`, `transaction_limit_exceeded` | 0.8 |
+| **re-authorisation** | `bank_account_invalid`, `card_disabled_for_online_payments`, `card_expired`, `card_not_enrolled`, `debit_instrument_blocked`, `debit_instrument_inactive`, `incorrect_ifsc`, `invalid_vpa`, `mandate_not_active`, `transaction_on_vpa_restricted`, `vpa_resolution_failed` | 1.0 |
+| | `incorrect_cvv` | 0.8 |
+| **silent retry** | `bank_technical_error`, `gateway_technical_error`, `payment_mandate_not_active`, `server_error` | 1.0 |
+| | `bank_account_validation_failed`, `card_declined` | 0.8 |
+| **held, deliberately** | `payment_risk_check_failed` (a bank calling it fraud), `input_validation_failed`, `invalid_amount`, `international_transaction_not_allowed`, `invalid_currency` | 0.0 |
+| **held, nothing to recover** | `payment_cancelled` | 0.4 |
+| **held, unrecognised** | anything absent from the table | 0.0 |
+
+Two limits stated rather than buried: **re-authorisation has no executor on this deployment** — it
+records the absence and routes to a person instead of pretending — and **silent retry reaches
+`execute_retry`, which has no debit adapter** for the same reason. See [Honesty about the
+data](#honesty-about-the-data).
+
+An empty account is the one class that does not begin by retrying. `insufficient_fund` enters at
+**nudge** and asks the customer when to try again, because whether a retry works depends on when
+they will have money and no API reports that — their answer reschedules the debit, and a fallback
+retry runs only if nobody replies.
+
 ## Rules the shell enforces
 
 Sourced from NPCI and Razorpay's recurring-payments documentation, not invented:

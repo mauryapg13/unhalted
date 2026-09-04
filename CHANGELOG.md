@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- The README now carries the whole routing table — every documented `error_reason`, the
+  `error_source` values that change the answer, the resulting diagnosis, confidence and entry rung,
+  and the two rungs this deployment has no executor for. Generated from the code and verified end to
+  end rather than described, because "most failures are unambiguous and resolve from a lookup table"
+  was a claim a reader had no way to check. It also makes the two places `error_source` outranks the
+  reason legible: a merchant-side fault, and `credit_failed` without a stated source falling below
+  the confidence threshold instead of guessing which of two documented causes applied.
+
 ### Changed
 - **An empty account is asked, not guessed at.** `RECOVERABLE_BALANCE` entered the ladder at
   `SILENT_RETRY` and spent NPCI's whole allowance on three blind attempts at a date nobody asked
