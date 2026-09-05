@@ -26,12 +26,14 @@ import json
 import pathlib
 import sys
 import textwrap
+from datetime import datetime
 
-from unhalted import clock, config
+from unhalted import clock, config, tui
 from unhalted.measure.compare import LEGEND, compare, differences
 from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
 from unhalted.runner import run_due
+from unhalted.shell import windows
 from unhalted.store import OrphanedWriteAheadLog, Store
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -58,7 +60,16 @@ def open_store(path: str | None) -> Store:
 # -- unhalted case ------------------------------------------------------------
 
 
+#: Room for a detail line after its 13-column label. Read off the terminal
+#: rather than fixed at 96, which was wider than the 92-column ceiling every
+#: other view respects — so a long outcome was cut twice, once by the slice and
+#: once by the terminal, and neither cut said it had happened.
+def _detail_width() -> int:
+    return max(24, tui.width() - 13)
+
+
 def render_record(record: AuditRecord, *, verbose: bool) -> list[str]:
+    _DETAIL_W = _detail_width()
     who = ""
     if record.human_actor:
         who = f"  by {record.human_actor}"
@@ -76,17 +87,18 @@ def render_record(record: AuditRecord, *, verbose: bool) -> list[str]:
     if record.rule_version:
         lines.append(d(f"      version  {record.rule_version}"))
     if record.confidence is not None:
-        lines.append(d(f"      conf     {record.confidence}"))
+        lines.append(f"      {d('conf    ')} {b(str(record.confidence))}")
 
     if verbose:
         for key, value in (record.inputs or {}).items():
             if value not in (None, "", [], {}):
-                lines.append(d(f"      {key:<9}{str(value)[:96]}"))
+                lines.append(d(f"      {key:<9}{tui.ellipsis(str(value), _DETAIL_W)}"))
     elif record.inputs.get("reply"):
-        lines.append(d(f'      said     "{record.inputs["reply"][:80]}"'))
+        said = tui.ellipsis(record.inputs["reply"], _DETAIL_W - 2)
+        lines.append(d(f'      said     "{said}"'))
 
     if record.outcome:
-        lines.append(d(f"      ->       {record.outcome[:96]}"))
+        lines.append(d(f"      ->       {tui.ellipsis(record.outcome, _DETAIL_W)}"))
     return lines
 
 
@@ -113,7 +125,11 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
     if case is None:
         return 1
 
-    print(f"\n{b(case.id)}   Rs {case.amount_rupees:,.0f}   {case.customer_ref}")
+    print(tui.banner(
+        f"{case.id} — one case, end to end",
+        f"Rs {case.amount_rupees:,.0f} · {case.customer_ref} · "
+        f"every decision, in the order it was made",
+    ))
     print(d(f"  state {case.state.value}   opened {case.opened_at:%Y-%m-%d %H:%M %Z}   "
             f"retries {case.retry_count}"))
 
@@ -121,13 +137,14 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
         print(d(f"\n  from {signal.source}"))
         print(d(f"    {signal.payment_id}  {signal.method}  "
                 f"reason={signal.error_reason}  source={signal.error_source}  "
-                f"step={signal.error_step}"))
+                f"step={tui.field(signal.error_step)}"))
 
     diagnosis = store.latest_diagnosis(case.id)
     if diagnosis:
         print(f"\n  {b('diagnosis')}  {diagnosis.klass.value}   "
-              f"confidence {diagnosis.confidence}   via {diagnosis.source.value}")
-        print(d(f"    authority {diagnosis.authority}   taxonomy {diagnosis.taxonomy_version}"))
+              f"confidence {b(str(diagnosis.confidence))}   via {diagnosis.source.value}")
+        print(f"    {d('authority')} {tui.authority(diagnosis.authority)}"
+              f"   {d('taxonomy ' + str(diagnosis.taxonomy_version))}")
         print(d(f"    {diagnosis.reasoning}"))
 
     timeline = store.timeline(case.id)
@@ -138,8 +155,13 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
 
     pending = store.pending_actions(case_id=case.id)
     print(f"\n  {b('pending')}  {len(pending)} automated action(s)")
+    now = datetime.now(tz=windows.IST)
     for action in pending:
-        when = action["scheduled_for"] or "unscheduled"
+        raw = action["scheduled_for"]
+        at = datetime.fromisoformat(raw) if raw else None
+        when = (
+            f"{tui.clock(at)}  {tui.relative(at, now)}" if at else "unscheduled"
+        )
         print(d(f"    {action['kind']:<24} {when}"))
     print()
     return 0

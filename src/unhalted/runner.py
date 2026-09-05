@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from unhalted import tui
 from unhalted.models import AuditRecord, CaseState
 from unhalted.shell import paylink, windows
 from unhalted.shell.notify import (
@@ -103,14 +104,20 @@ class RunReport:
     lines: list[str] = field(default_factory=list)
 
     def render(self) -> str:
-        head = (
-            f"{self.at:%Y-%m-%d %H:%M %Z}  worker={self.worker}  "
-            f"claimed={self.claimed}  done={self.done}  held={self.held}  "
-            f"cancelled={self.cancelled}  no-adapter={self.no_adapter}  "
-            f"failed={self.failed}"
-        )
+        counts = [
+            tui.counter("claimed", self.claimed),
+            tui.counter("done", self.done, tint=tui.GREEN),
+            tui.counter("held", self.held, tint=tui.RED),
+            tui.counter("cancelled", self.cancelled, tint=tui.RED),
+            tui.counter("no-adapter", self.no_adapter, tint=tui.RED),
+            tui.counter("failed", self.failed, tint=tui.RED),
+        ]
         if self.reclaimed:
-            head += f"  reclaimed={self.reclaimed}"
+            counts.append(tui.counter("reclaimed", self.reclaimed, tint=tui.AMBER))
+        head = (
+            f"{tui.paint(f'{self.at:%Y-%m-%d %H:%M %Z}', tui.DIM)}  "
+            f"{tui.paint('worker=' + self.worker, tui.DIM)}  " + "  ".join(counts)
+        )
         return "\n".join([head, *self.lines]) if self.lines else head
 
 

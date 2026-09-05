@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+- The terminal views read as one system rather than four. `unhalted case` had no banner at all —
+  the one view an auditor lands on was the only one that did not say what it was. A long outcome
+  was cut at a hard 96 characters, wider than the 92-column ceiling every other view respects, so
+  it was cut twice and neither cut said so: `tui.ellipsis` shortens on a word boundary and marks
+  it. A pending action printed a raw ISO timestamp with microseconds beside views that render
+  every other time as `07 Sep 15:16  in 2d 00h`. `step=None` showed a Python word where a person
+  reads an answer, now `—` via `tui.field`. Colour is used only where it already carries meaning:
+  the confidence band is tinted by what it permits (`tui.authority` — green acts, amber acts and
+  is sampled, red does not), the run-due counters dim their zeros so the ones that happened carry
+  the line (`tui.counter`), and the confidence value is bold because it is what the gating rests
+  on. No wording, no layout and no behaviour changed.
+
 ### Added
 - `scripts/demo_inject.sh` — post N failed payments sharing one error shape over the real signed
   webhook, so a taxonomy gap can be demonstrated without a screenful of inline shell. Not a

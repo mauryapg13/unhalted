@@ -61,6 +61,54 @@ def pad(text: str, to: int) -> str:
     return text + " " * max(0, to - visible(text))
 
 
+def ellipsis(text: str, limit: int) -> str:
+    """Shorten to `limit`, on a word boundary, and say that it was shortened.
+
+    A hard slice stops mid-word and reads as a bug rather than as a choice —
+    the auditor view ended an outcome on "reschedules to the date the", which
+    undermines the one thing that view exists to claim.
+    """
+    if limit <= 1 or visible(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    if " " in cut[limit // 2:]:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:") + "…"
+
+
+def field(value: object) -> str:
+    """A value as a person reads it. `None` is a Python word, not an answer."""
+    if value is None or value == "":
+        return "—"
+    return str(value)
+
+
+#: What each confidence band means, in the palette's own terms. Green acts,
+#: amber acts and is sampled, red does not act.
+AUTHORITY_TINT = {
+    "auto-execute": GREEN,
+    "auto-execute-sampled-qa": AMBER,
+    "hold-for-human": RED,
+}
+
+
+def authority(band: str) -> str:
+    """The confidence band, tinted by what it permits."""
+    return paint(band, AUTHORITY_TINT.get(band, DIM))
+
+
+def counter(label: str, value: int, *, tint: str = "") -> str:
+    """`label=value`, dimmed when it is zero.
+
+    A run that did one thing prints six counters, four of them zero. Dimming
+    the empty ones lets the two that happened carry the line without anything
+    moving.
+    """
+    if value == 0:
+        return paint(f"{label}={value}", DIM)
+    return f"{paint(label + '=', DIM)}{paint(str(value), tint or BOLD)}"
+
+
 def clear() -> str:
     """Home the cursor and wipe. Empty when not a terminal, so logs stay logs."""
     return "\033[2J\033[H" if colour() else ""

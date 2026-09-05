@@ -153,7 +153,7 @@ def main() -> int:
     rule("1. A payment failure arrives")
     print(f"  payment  {signal.payment_id}   Rs {signal.amount_rupees:.0f}   {signal.method}")
     print(f"  Razorpay says: reason={signal.error_reason}  source={signal.error_source}  "
-          f"step={signal.error_step}")
+          f"step={tui.field(signal.error_step)}")
     if args.scenario:
         print(
             f"  {DIM}built locally from a documented Razorpay test-card scenario, not a real "
@@ -165,9 +165,11 @@ def main() -> int:
     rule("2. The agent diagnoses and schedules")
     case = handle_failure(store, signal, now=now)
     diagnosis = store.latest_diagnosis(case.id)
-    print(f"  {case.id}   state={case.state.value}")
-    print(f"  {diagnosis.klass.value}  confidence {diagnosis.confidence}  "
-          f"via {diagnosis.source.value}  ({diagnosis.authority})")
+    print(f"  {case.id}   {DIM}state{RESET} {case.state.value}")
+    print(f"  {diagnosis.klass.value}  {DIM}confidence{RESET} "
+          f"{tui.paint(str(diagnosis.confidence), tui.BOLD)}  "
+          f"{DIM}via {diagnosis.source.value}{RESET}  "
+          f"({tui.authority(diagnosis.authority)})")
     print(f"  {DIM}{diagnosis.reasoning}{RESET}")
     for r in store.timeline(case.id):
         fired = ("  " + ", ".join(r.rules_fired)) if r.rules_fired else ""
