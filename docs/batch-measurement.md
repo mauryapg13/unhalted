@@ -1,6 +1,6 @@
 # Batch measurement
 
-Generated 2026-09-04 21:41 UTC · 300 cases ·
+Generated 2026-09-05 16:01 UTC · 300 cases ·
 Rs 120,850 at risk
 
 ## What this batch is
@@ -54,7 +54,7 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 | Debit attempts scheduled | 84 | 900 | 816 fewer |
 | Attempts a retry could not fix | 0 | 108 | 108 avoided |
 | Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided |
-| Customer contacts | 189 | 0 | baseline never contacts anyone |
+| Customer contacts scheduled | 189 | 0 | baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | baseline has no such path |
 | Cases closed as uneconomic | 0 | 0 | unreachable at entry rungs; see below |
 

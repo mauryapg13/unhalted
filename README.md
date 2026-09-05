@@ -274,7 +274,7 @@ regenerated with `uv run python scripts/run_batch.py`.
 | Debit attempts scheduled | 84 | 900 | 816 fewer |
 | Attempts a retry provably cannot fix | 0 | 108 | 108 avoided |
 | Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided, UPI only |
-| Customer contacts | 189 | 0 | the baseline never contacts anyone |
+| Customer contacts scheduled | 189 | 0 | the baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | the baseline has no such path |
 | Intervention spend | ₹225 | ₹0 | messages are not free, and this is what they cost |
 | Diagnoses requiring a model call | **0 of 300** | — | inference spend ₹0.00 |

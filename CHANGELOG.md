@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- The batch report labelled a row "customer contacts" where the figure is contacts *scheduled*. The
+  batch measures ladder decisions; the contact ceiling is enforced at send time in the runner, so
+  under 1-per-14-days at most 100 of those 189 reach anybody inside a fortnight — the batch has 300
+  cases across 100 distinct customers. Both readings of the old label were defensible and one of
+  them contradicted a hard rule stated three sections earlier in the same README. No number moved.
+
+### Fixed
 - **A reply asking to cancel was swallowed by a weak opt-out read.** "Mujhe nhi chaiye. cancel kro"
   parsed as cancellation-request at 0.95 and opt-out at 0.50. `replies.decide` is ordered
   most-protective-first and each branch returns; opt-out is step 3 and clears its bar at 0.50 by

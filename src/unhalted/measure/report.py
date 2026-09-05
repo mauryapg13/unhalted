@@ -244,7 +244,7 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 {row("Debit attempts scheduled", agent.attempts, base.attempts, f"{saved_attempts} fewer")}
 {row("Attempts a retry could not fix", agent.futile_attempts, base.futile_attempts, f"{saved_futile} avoided")}
 {row("Attempts inside NPCI restricted bands", agent.attempts_in_restricted_window, base.attempts_in_restricted_window, f"{saved_windows} avoided")}
-{row("Customer contacts", agent.messages, base.messages, "baseline never contacts anyone")}
+{row("Customer contacts scheduled", agent.messages, base.messages, "baseline never contacts anyone")}
 {row("Cases held for a human", agent.held_for_human, 0, "baseline has no such path")}
 {row("Cases closed as uneconomic", agent.closed_uneconomic, 0, "unreachable at entry rungs; see below")}
 
@@ -341,7 +341,7 @@ def render_terminal(
         row("attempts inside NPCI restricted bands",
             agent.attempts_in_restricted_window, base.attempts_in_restricted_window,
             f"{base.attempts_in_restricted_window - agent.attempts_in_restricted_window} avoided"),
-        row("customer contacts", agent.messages, base.messages,
+        row("customer contacts scheduled", agent.messages, base.messages,
             "baseline never contacts anyone"),
         row("cases held for a human", agent.held_for_human, 0,
             "baseline has no such path"),
