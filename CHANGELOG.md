@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Added
+- `scripts/demo_inject.sh` — post N failed payments sharing one error shape over the real signed
+  webhook, so a taxonomy gap can be demonstrated without a screenful of inline shell. Not a
+  shortcut past the pipeline: each payment carries a real HMAC signature and goes to the same
+  endpoint Razorpay posts to, so the signature check, the idempotency check, the normaliser and
+  the taxonomy all run. It exists because `scripts/inject.py` covers the five *documented* card
+  scenarios and showing an unclassified failure needs a reason that deliberately is not one of
+  them. Refuses to start when its port is already in use, rather than posting into a stale server
+  bound to a different database and leaving the cases apparently vanished — which is exactly what
+  happened while working out the command it replaces.
+
+### Added
 - **A contact ceiling, one message per customer per fortnight** (`contact.max_per_window`, over
   `contact.window`), counted across
   every case they have and every channel. The retry cap bounds *debits* and says nothing about
