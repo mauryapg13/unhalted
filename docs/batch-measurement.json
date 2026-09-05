@@ -1,15 +1,31 @@
 {
-  "generated_at": "2026-09-04 16:58 UTC",
+  "generated_at": "2026-09-05 16:21 UTC",
   "cases_count": 300,
   "holdout": 21,
   "total_paise": 12085000,
+  "exposure": {
+    "unreachable_paise": 1251400,
+    "unreachable_cases": 36,
+    "must_not_take_paise": 0,
+    "must_not_take_cases": 0,
+    "unclassified_paise": 169600,
+    "unclassified_cases": 4,
+    "contested_paise": 10664000,
+    "contested_cases": 260,
+    "baseline_ceiling_paise": 10833600,
+    "agent_ceiling_paise": 12085000,
+    "dominance_paise": 1251400,
+    "breakeven_spend_paise": 7200,
+    "breakeven_rate": 0.005753556017260668,
+    "breakeven_leverage": 173.80555555555554
+  },
   "agent": {
     "cases": 300,
-    "attempts": 217,
+    "attempts": 84,
     "attempts_in_restricted_window": 0,
     "futile_attempts": 0,
-    "messages": 56,
-    "intervention_paise": 9200,
+    "messages": 189,
+    "intervention_paise": 22500,
     "held_for_human": 27,
     "closed_uneconomic": 0,
     "by_class": {
@@ -20,9 +36,9 @@
       "unknown": 4
     },
     "by_rung": {
-      "rung 1": 217,
+      "rung 2": 153,
       "rung 3": 36,
-      "rung 2": 20
+      "rung 1": 84
     },
     "by_confidence_band": {
       "<0.70 held": 27,

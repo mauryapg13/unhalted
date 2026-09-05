@@ -25,10 +25,16 @@ LATER = NOW + timedelta(days=2)
 
 
 def signal(**over):
+    # A technical failure, deliberately: these tests are about the runner's
+    # own mechanics — leasing, claiming, reclaiming, cancellation — and need
+    # a case that schedules a *retry*. A balance failure now enters the
+    # ladder at NUDGE (it asks the customer when to try, rather than guessing
+    # three times), which would give these tests a nudge to reason about
+    # instead of the retry every one of them is written around.
     fields = {
         "payment_id": "pay_RUN", "customer_ref": "cust_run", "amount_paise": 49900,
         "occurred_at": NOW, "source": "test", "method": "card",
-        "error_reason": "insufficient_funds", "error_source": "customer",
+        "error_reason": "gateway_technical_error", "error_source": "gateway",
     }
     fields.update(over)
     return FailureSignal(**fields)

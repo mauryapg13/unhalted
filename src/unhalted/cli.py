@@ -4,6 +4,8 @@
     unhalted compare CASE-1AD69F26  the same case under Razorpay's retry policy
     unhalted cases                  what is open, held, closed
     unhalted queue                  what is waiting on a person
+    unhalted stops                  who this system may not contact
+    unhalted lift-stop N --by NAME  make a suppressed customer contactable again
     unhalted report                 the batch numbers
     unhalted breakeven              what the money argument rests on
     unhalted calibration            whether confidence predicts outcome, on real cases only
@@ -24,12 +26,14 @@ import json
 import pathlib
 import sys
 import textwrap
+from datetime import datetime
 
-from unhalted import clock, config
+from unhalted import clock, config, tui
 from unhalted.measure.compare import LEGEND, compare, differences
 from unhalted.measure.outcomes import breakeven, classify, envelope, render_outcomes
 from unhalted.models import AuditRecord, Case, CaseState
 from unhalted.runner import run_due
+from unhalted.shell import windows
 from unhalted.store import OrphanedWriteAheadLog, Store
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -56,7 +60,16 @@ def open_store(path: str | None) -> Store:
 # -- unhalted case ------------------------------------------------------------
 
 
+#: Room for a detail line after its 13-column label. Read off the terminal
+#: rather than fixed at 96, which was wider than the 92-column ceiling every
+#: other view respects — so a long outcome was cut twice, once by the slice and
+#: once by the terminal, and neither cut said it had happened.
+def _detail_width() -> int:
+    return max(24, tui.width() - 13)
+
+
 def render_record(record: AuditRecord, *, verbose: bool) -> list[str]:
+    _DETAIL_W = _detail_width()
     who = ""
     if record.human_actor:
         who = f"  by {record.human_actor}"
@@ -74,17 +87,18 @@ def render_record(record: AuditRecord, *, verbose: bool) -> list[str]:
     if record.rule_version:
         lines.append(d(f"      version  {record.rule_version}"))
     if record.confidence is not None:
-        lines.append(d(f"      conf     {record.confidence}"))
+        lines.append(f"      {d('conf    ')} {b(str(record.confidence))}")
 
     if verbose:
         for key, value in (record.inputs or {}).items():
             if value not in (None, "", [], {}):
-                lines.append(d(f"      {key:<9}{str(value)[:96]}"))
+                lines.append(d(f"      {key:<9}{tui.ellipsis(str(value), _DETAIL_W)}"))
     elif record.inputs.get("reply"):
-        lines.append(d(f'      said     "{record.inputs["reply"][:80]}"'))
+        said = tui.ellipsis(record.inputs["reply"], _DETAIL_W - 2)
+        lines.append(d(f'      said     "{said}"'))
 
     if record.outcome:
-        lines.append(d(f"      ->       {record.outcome[:96]}"))
+        lines.append(d(f"      ->       {tui.ellipsis(record.outcome, _DETAIL_W)}"))
     return lines
 
 
@@ -111,7 +125,11 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
     if case is None:
         return 1
 
-    print(f"\n{b(case.id)}   Rs {case.amount_rupees:,.0f}   {case.customer_ref}")
+    print(tui.banner(
+        f"{case.id} — one case, end to end",
+        f"Rs {case.amount_rupees:,.0f} · {case.customer_ref} · "
+        f"every decision, in the order it was made",
+    ))
     print(d(f"  state {case.state.value}   opened {case.opened_at:%Y-%m-%d %H:%M %Z}   "
             f"retries {case.retry_count}"))
 
@@ -119,13 +137,14 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
         print(d(f"\n  from {signal.source}"))
         print(d(f"    {signal.payment_id}  {signal.method}  "
                 f"reason={signal.error_reason}  source={signal.error_source}  "
-                f"step={signal.error_step}"))
+                f"step={tui.field(signal.error_step)}"))
 
     diagnosis = store.latest_diagnosis(case.id)
     if diagnosis:
         print(f"\n  {b('diagnosis')}  {diagnosis.klass.value}   "
-              f"confidence {diagnosis.confidence}   via {diagnosis.source.value}")
-        print(d(f"    authority {diagnosis.authority}   taxonomy {diagnosis.taxonomy_version}"))
+              f"confidence {b(str(diagnosis.confidence))}   via {diagnosis.source.value}")
+        print(f"    {d('authority')} {tui.authority(diagnosis.authority)}"
+              f"   {d('taxonomy ' + str(diagnosis.taxonomy_version))}")
         print(d(f"    {diagnosis.reasoning}"))
 
     timeline = store.timeline(case.id)
@@ -136,8 +155,13 @@ def show_case(store: Store, case_id: str, *, verbose: bool) -> int:
 
     pending = store.pending_actions(case_id=case.id)
     print(f"\n  {b('pending')}  {len(pending)} automated action(s)")
+    now = datetime.now(tz=windows.IST)
     for action in pending:
-        when = action["scheduled_for"] or "unscheduled"
+        raw = action["scheduled_for"]
+        at = datetime.fromisoformat(raw) if raw else None
+        when = (
+            f"{tui.clock(at)}  {tui.relative(at, now)}" if at else "unscheduled"
+        )
         print(d(f"    {action['kind']:<24} {when}"))
     print()
     return 0
@@ -180,7 +204,8 @@ def show_comparison(store: Store, case_id: str) -> int:
     print(f"\n{b(result.case_id)}   Rs {result.amount_rupees:,.0f}   {result.customer_ref}")
     if result.signal is not None:
         print(d(f"  Razorpay said: reason={result.signal.error_reason}  "
-                f"source={result.signal.error_source}  step={result.signal.error_step}"))
+                f"source={result.signal.error_source}  "
+                f"step={tui.field(result.signal.error_step)}"))
     if result.diagnosis is not None:
         model = result.diagnosis.model_name or "no model call"
         print(d(f"  agent diagnosed {result.diagnosis.klass.value} at "
@@ -260,6 +285,55 @@ def show_queue(store: Store) -> int:
         reason = ", ".join(why.rules_fired) if why else "unknown"
         print(f"  {case.id}  Rs {case.amount_rupees:>7,.0f}  {d(reason)}")
     print(d("\n  review them with: uv run python scripts/review.py\n"))
+    return 0
+
+
+def show_stops(store: Store) -> int:
+    """Who this system may not contact, and since when."""
+    standing = store.standing_suppressions()
+    if not standing:
+        print("no standing stops; every customer is contactable")
+        return 0
+
+    print(f"\n{b('automated contact is barred')}  {len(standing)}")
+    for row in standing:
+        detail = f"  {d(row['detail'])}" if row["detail"] else ""
+        print(
+            f"  #{row['id']:<4} {row['code']:<14} {row['scope']} {row['scope_key']}"
+            f"  {d('since ' + row['at'][:16])}{detail}"
+        )
+    print(d("\n  lift one with: uv run unhalted lift-stop <id> --by <name>\n"))
+    return 0
+
+
+def lift_stop(store: Store, suppression_id: int, *, by: str, at: str | None) -> int:
+    """Let a named person make a suppressed customer contactable again.
+
+    Deliberately a person's command and not a code path. Nothing a customer
+    says reaches this — not a payment, not "actually, continue", not a date.
+    Somebody with a name has to decide, and the name is recorded next to the
+    decision.
+    """
+    try:
+        now, note = clock.resolve(at)
+    except clock.BadTime as exc:
+        print(exc)
+        return 2
+    if note:
+        print(note)
+
+    match = next(
+        (r for r in store.standing_suppressions() if int(r["id"]) == suppression_id), None
+    )
+    if match is None:
+        print(f"no standing suppression #{suppression_id}. See: uv run unhalted stops")
+        return 1
+
+    store.lift_suppression(suppression_id, by=by, at=now)
+    print(
+        f"lifted #{suppression_id} ({match['code']}, {match['scope']} "
+        f"{match['scope_key']}) — by {by}"
+    )
     return 0
 
 
@@ -360,6 +434,7 @@ def show_report() -> int:
         agent, base,
         cases_count=data["cases_count"], holdout=data["holdout"],
         total_paise=data["total_paise"], generated_at=data["generated_at"],
+        exposure=data.get("exposure"),
     ))
     return 0
 
@@ -512,6 +587,11 @@ def main(argv: list[str] | None = None) -> int:
     cases_cmd.add_argument("--state", help="filter by state")
 
     command("queue", help="what is waiting on a person")
+    command("stops", help="who this system may not contact, and since when")
+    lift = command("lift-stop", help="let a named person make a customer contactable again")
+    lift.add_argument("suppression_id", type=int)
+    lift.add_argument("--by", required=True, metavar="NAME",
+                      help="who is lifting it; recorded beside the decision")
     comparison = command(
         "compare", help="the same case under Razorpay's documented retry policy"
     )
@@ -583,6 +663,10 @@ def dispatch(args) -> int:
             return list_cases(store, state=args.state)
         if args.command == "queue":
             return show_queue(store)
+        if args.command == "stops":
+            return show_stops(store)
+        if args.command == "lift-stop":
+            return lift_stop(store, args.suppression_id, by=args.by, at=args.at)
     finally:
         store.close()
     return 0

@@ -357,6 +357,24 @@ TABLE: dict[tuple[str, str, str, str], Rule] = {
         "Razorpay: the payment request itself was wrong. A merchant-side integration "
         "fault, deliberately held rather than classified",
     ),
+    # The other two reasons Razorpay's failure-analysis guide files under
+    # business failures. Both already landed on UNKNOWN through the unmatched
+    # fallback, so nothing was ever retried on them — but they read as gaps in
+    # the table rather than as decisions, and `propose_taxonomy_rule.py` would
+    # have kept surfacing them as rules somebody still had to write.
+    (ANY, "international_transaction_not_allowed", ANY, ANY): Rule(
+        DiagnosisClass.UNKNOWN,
+        0.0,
+        "Razorpay: international payments are not enabled on this account. A "
+        "merchant-side account setting, fixed by the merchant with Razorpay support "
+        "and not by retrying or by contacting the customer",
+    ),
+    (ANY, "invalid_currency", ANY, ANY): Rule(
+        DiagnosisClass.UNKNOWN,
+        0.0,
+        "Razorpay: the currency is not enabled or supported for this business. A "
+        "merchant-side account setting, fixed by the merchant and not by retrying",
+    ),
 }
 
 #: Applied when nothing matches. Never guesses.
@@ -364,6 +382,35 @@ UNMATCHED = Rule(
     DiagnosisClass.UNKNOWN,
     0.0,
     "no taxonomy entry for this combination of method, reason, source and step",
+)
+
+#: `error_source` values naming the merchant's own configuration as the cause.
+#: Razorpay's failure-analysis guide is unambiguous about the remedy: "Business
+#: failures require corrective action rather than retries. These issues stem
+#: from merchant-side configuration or account settings — simply retrying the
+#: same request won't resolve them."
+#:
+#: This is a fact about the *source*, not the reason, and it has to be read
+#: that way: `payment_failed` carries a permissive rule because a bank decline
+#: is worth one retry, and the same reason arriving with `error_source:
+#: business` is a broken integration that will fail identically every time.
+#: Keying every reason against "business" individually would mean adding a row
+#: for each one Razorpay ever emits, and missing the next one.
+MERCHANT_SOURCES = frozenset({"business"})
+
+#: Deliberately held, exactly as `invalid_amount` and `input_validation_failed`
+#: already are — and worded so it never reads as a *gap* in the table. A
+#: merchant fault is classified, not unrecognised, and
+#: `scripts/propose_taxonomy_rule.py` clusters on "no taxonomy entry", so
+#: reusing that phrase here would file every one of these as a rule somebody
+#: still needs to write.
+MERCHANT_FAULT = Rule(
+    DiagnosisClass.UNKNOWN,
+    0.0,
+    "Razorpay attributes this to the business, not the customer or the bank: a "
+    "merchant-side configuration or integration fault. Their own guidance is that "
+    "retrying cannot resolve it — the request has to be corrected first — so this "
+    "is held for a person and no customer is contacted about it",
 )
 
 
@@ -376,6 +423,19 @@ def lookup(
     """Classify a failure and derive how much the signal actually determined."""
     if not reason:
         return Match(UNMATCHED, "", 0.0, "no error_reason on the payment")
+
+    # Asked before the reason is, because for these the source is the whole
+    # answer. A merchant-side fault arriving under a permissive reason —
+    # `payment_failed` with `error_source: business`, say — would otherwise
+    # match that reason's rule and be retried, which Razorpay's own guidance
+    # says cannot work.
+    if source in MERCHANT_SOURCES:
+        return Match(
+            MERCHANT_FAULT,
+            f"*|{reason}|{source}|*",
+            0.0,
+            MERCHANT_FAULT.rationale,
+        )
 
     candidates = (
         (method or ANY, reason, source or ANY, step or ANY),

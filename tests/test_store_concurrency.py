@@ -108,8 +108,9 @@ def test_a_case_survives_the_process_that_wrote_it(tmp_path) -> None:
         assert recovered.id == case.id
         assert len(reopened.signals(case.id)) == 1
         assert len(reopened.timeline(case.id)) == 4
-        # the retry handle_failure scheduled, plus the nudge added above
-        assert len(reopened.pending_actions(case_id=case.id)) == 2
+        # what handle_failure scheduled — a balance failure asks when to
+        # try and arms a fallback retry behind it — plus the nudge above
+        assert len(reopened.pending_actions(case_id=case.id)) == 3
     finally:
         reopened.close()
 
@@ -164,7 +165,13 @@ def test_four_processes_never_claim_the_same_action(tmp_path) -> None:
     for i in range(60):
         case = handle_failure(store, signal(900 + i), now=now)
         store.schedule_action(case.id, case.customer_ref, "nudge", now, now)
-    expected = len(store.pending_actions())
+    # Only what is actually due by then: a balance failure also arms a
+    # fallback retry a day and a half out, which no worker should claim
+    # at `due` and which would otherwise read here as work that went missing.
+    expected = sum(
+        1 for a in store.pending_actions()
+        if a["scheduled_for"] and datetime.fromisoformat(a["scheduled_for"]) <= due
+    )
     store.close()
 
     ctx = mp.get_context("spawn")

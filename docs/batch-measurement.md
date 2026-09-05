@@ -1,6 +1,6 @@
 # Batch measurement
 
-Generated 2026-09-04 16:58 UTC · 300 cases ·
+Generated 2026-09-05 16:21 UTC · 300 cases ·
 Rs 120,850 at risk
 
 ## What this batch is
@@ -51,14 +51,14 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 
 | | Agent | Baseline | |
 |---|---|---|---|
-| Debit attempts scheduled | 217 | 900 | 683 fewer |
+| Debit attempts scheduled | 84 | 900 | 816 fewer |
 | Attempts a retry could not fix | 0 | 108 | 108 avoided |
 | Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided |
-| Customer contacts | 56 | 0 | baseline never contacts anyone |
+| Customer contacts scheduled | 189 | 0 | baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | baseline has no such path |
 | Cases closed as uneconomic | 0 | 0 | unreachable at entry rungs; see below |
 
-Intervention spend: **Rs 92**.
+Intervention spend: **Rs 225**.
 
 ### What the model was asked to do
 
@@ -104,8 +104,8 @@ this batch. Recorded rather than papered over: see issue #15.
 
 | Entry rung | Cases |
 |---|---:|
-| rung 1 | 217 |
-| rung 2 | 20 |
+| rung 1 | 84 |
+| rung 2 | 153 |
 | rung 3 | 36 |
 
 ### How much the confidence thresholds matter

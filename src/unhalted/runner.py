@@ -51,9 +51,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from unhalted import tui
 from unhalted.models import AuditRecord, CaseState
 from unhalted.shell import paylink, windows
-from unhalted.shell.notify import ConsoleNotifier, Message, Notifier, deliver, nudge_body
+from unhalted.shell.notify import (
+    ConsoleNotifier,
+    Message,
+    Notifier,
+    body_for,
+    deliver,
+)
 from unhalted.store import Store
 
 log = logging.getLogger("unhalted.runner")
@@ -96,14 +103,20 @@ class RunReport:
     lines: list[str] = field(default_factory=list)
 
     def render(self) -> str:
-        head = (
-            f"{self.at:%Y-%m-%d %H:%M %Z}  worker={self.worker}  "
-            f"claimed={self.claimed}  done={self.done}  held={self.held}  "
-            f"cancelled={self.cancelled}  no-adapter={self.no_adapter}  "
-            f"failed={self.failed}"
-        )
+        counts = [
+            tui.counter("claimed", self.claimed),
+            tui.counter("done", self.done, tint=tui.GREEN),
+            tui.counter("held", self.held, tint=tui.RED),
+            tui.counter("cancelled", self.cancelled, tint=tui.RED),
+            tui.counter("no-adapter", self.no_adapter, tint=tui.RED),
+            tui.counter("failed", self.failed, tint=tui.RED),
+        ]
         if self.reclaimed:
-            head += f"  reclaimed={self.reclaimed}"
+            counts.append(tui.counter("reclaimed", self.reclaimed, tint=tui.AMBER))
+        head = (
+            f"{tui.paint(f'{self.at:%Y-%m-%d %H:%M %Z}', tui.DIM)}  "
+            f"{tui.paint('worker=' + self.worker, tui.DIM)}  " + "  ".join(counts)
+        )
         return "\n".join([head, *self.lines]) if self.lines else head
 
 
@@ -129,10 +142,46 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
     this rung as the way someone pays from a different account rather than
     waits on a retry of the mandate that just failed. A link that fails to
     generate does not hold the nudge; it goes out without one.
+
+    Which message it carries is the decision's to make, not this function's:
+    the `variant` recorded on the action picks the wording, and an action
+    scheduled without one gets the first-touch text, which assumes least.
     """
     case = store.get_case(action["case_id"])
     if case is None:
         return Outcome("failed", "the case this action belongs to is gone")
+
+    # A promise the customer made outranks a message this system planned. The
+    # shell has always computed the date; until it was persisted and read here,
+    # a customer who said "the 2nd" could still be nudged on the 1st.
+    if case.nudges_suspended_until and now.date() < case.nudges_suspended_until:
+        resume = datetime.combine(
+            case.nudges_suspended_until, windows.CONTACT_OPEN, tzinfo=windows.IST
+        )
+        return Outcome(
+            "pending",
+            f"not sent: the customer asked to be tried on "
+            f"{case.nudges_suspended_until.isoformat()}",
+            retry_at=resume,
+        )
+
+    # The contact ceiling, counted across every case this customer has. It sits
+    # here beside contact hours rather than at scheduling time for the same
+    # reason: what matters is how many messages have actually reached them by
+    # the moment one is about to be sent, and two cases scheduled minutes apart
+    # both looked clear when they were queued.
+    budget = windows.contact_budget(
+        store.contacts_since(
+            case.customer_ref, now - windows.POLICY.contact_window
+        ),
+        now=now,
+    )
+    if not budget.allowed:
+        return Outcome(
+            "pending",
+            f"not sent: {budget.reason}",
+            retry_at=budget.free_at,
+        )
 
     # A link is a real network call to Razorpay; check contact hours first so
     # one is not spent generating it for a message that will not go out this
@@ -145,6 +194,12 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
             retry_at=windows.next_allowed_contact(now),
         )
 
+    variant = action.get("variant")
+    # Every nudge carries a payable link, whatever it says. Asking a customer
+    # to name a date and giving them no way to just pay makes somebody who has
+    # the money today do extra work to hand it over — and the rung is named
+    # "message with a pay link", which was a contradiction on screen for the
+    # one variant that had none.
     link = paylink.create_payment_link(
         amount_paise=case.amount_paise,
         description=f"payment retry for {case.id}",
@@ -153,7 +208,9 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
     notifier: Notifier = ConsoleNotifier()
     message = Message(
         customer_ref=case.customer_ref,
-        body=nudge_body(case.amount_rupees, pay_link=link.url if link else None),
+        body=body_for(
+            variant, case.amount_rupees, pay_link=link.url if link else None
+        ),
         case_id=case.id,
     )
     result = deliver(notifier, message, now=now)
@@ -240,6 +297,27 @@ def run_due(
             report.lines.append(f"  #{action_id} {kind}: cancelled before it ran")
             continue
 
+        # The last gate before anything reaches a customer. A stop that fired
+        # while this row sat in the queue already cancels it above; this is the
+        # other case — a row armed *after* a standing suppression, or one whose
+        # customer was suppressed by a stop on a different case. Delivery here
+        # is at-least-once, so the check belongs on the execution side too and
+        # not only where actions are scheduled.
+        suppression = store.contact_suppression(
+            case_id=current["case_id"], customer_ref=current["customer_ref"]
+        )
+        if suppression is not None:
+            store.finish_action(
+                action_id, state="cancelled",
+                error=f"contact suppressed by {suppression['code']}",
+            )
+            report.cancelled += 1
+            report.lines.append(
+                f"  #{action_id} {kind}: not run — contact suppressed by "
+                f"{suppression['code']}"
+            )
+            continue
+
         executor = table.get(kind)
         if executor is None:
             store.finish_action(action_id, state="no-adapter",
@@ -261,6 +339,18 @@ def run_due(
             continue
 
         _record(store, action, outcome, now, who)
+
+        # One debit attempt, counted against this case's NPCI allowance —
+        # whatever came back. Deferrals below never reach here, so a nudge
+        # moved out of contact hours is not an attempt and a retry that ran
+        # is, regardless of whether this deployment had an adapter to run it
+        # with. Without this the counter stayed at zero for a case's whole
+        # life, so every retry used tier one of the backoff and the cap could
+        # never be reached at all.
+        if kind == "retry" and not (
+            outcome.state == "pending" and outcome.retry_at is not None
+        ):
+            store.increment_retry_count(action["case_id"])
 
         if outcome.state == "pending" and outcome.retry_at is not None:
             store.return_action(action_id, scheduled_for=outcome.retry_at)

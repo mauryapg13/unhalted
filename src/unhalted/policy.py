@@ -68,12 +68,19 @@ class Policy:
 
     contact_open: time
     contact_close: time
+    #: Automated messages one customer may receive per rolling window, across
+    #: every case and channel.
+    contact_max_per_window: int
+    contact_window: timedelta
 
     retry_cap: int
     #: Keyed by the plain DiagnosisClass *value* string, e.g.
     #: "recoverable-technical" — not the enum, so this module never imports it.
     backoff_raw: dict[str, tuple[timedelta, ...]]
     default_backoff: timedelta
+    #: How long a balance case waits for the customer to name a date before
+    #: falling back to the blind backoff schedule above.
+    reply_grace: timedelta
 
     confidence_auto_execute: float
     confidence_sampled_qa: float
@@ -143,9 +150,12 @@ def load(path: pathlib.Path | None = None) -> Policy:
         npci_rule_version=str(_require(raw, "npci", "rule_version")),
         contact_open=_parse_time(str(_require(raw, "contact", "open"))),
         contact_close=_parse_time(str(_require(raw, "contact", "close"))),
+        contact_max_per_window=int(_require(raw, "contact", "max_per_window")),
+        contact_window=_parse_duration(str(_require(raw, "contact", "window"))),
         retry_cap=int(_require(raw, "retries", "cap")),
         backoff_raw=backoff,
         default_backoff=_parse_duration(str(_require(raw, "retries", "default_backoff"))),
+        reply_grace=_parse_duration(str(_require(raw, "retries", "reply_grace"))),
         confidence_auto_execute=float(_require(raw, "confidence", "auto_execute")),
         confidence_sampled_qa=float(_require(raw, "confidence", "auto_execute_sampled_qa")),
         reply_acts_on_money=float(_require(raw, "reply_policy", "acts_on_money")),

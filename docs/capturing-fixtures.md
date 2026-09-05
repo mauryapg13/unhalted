@@ -13,12 +13,18 @@ Razorpay Dashboard -> **Settings -> Webhooks -> Add New Webhook**
 
 | | |
 |---|---|
-| **Webhook URL** | `https://powdery-rudder-occupier.ngrok-free.dev/webhooks/razorpay` |
-| **Secret** | `4lz50FR-vVE6Oc3a8kJ6OsCAfA8VcCN5` |
-| **Active events** | `payment.failed`, and `payment.captured` if offered |
+| **Webhook URL** | `https://<your-tunnel>.ngrok-free.dev/webhooks/razorpay` |
+| **Secret** | whatever `RAZORPAY_WEBHOOK_SECRET` is set to in your `.env` |
+| **Active events** | `payment.failed`, `payment_link.paid`, and `payment.captured` if offered |
 
-The secret is already in `.env`. The URL is an ngrok tunnel and **changes every time ngrok
-restarts** — if the tunnel is restarted, update the dashboard.
+Read the secret out of `.env` rather than from here — it is a credential, and a credential written
+into a tracked file is a credential published. An earlier version of this table had the real one in
+it. The URL is an ngrok tunnel and **changes every time ngrok restarts**; if the tunnel is
+restarted, update the dashboard.
+
+```bash
+grep '^RAZORPAY_WEBHOOK_SECRET=' .env
+```
 
 ## 2. Pay each link with the card it names
 

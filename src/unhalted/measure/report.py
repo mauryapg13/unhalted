@@ -244,7 +244,7 @@ Facts about what each policy does. Nothing here needs to know whether anything r
 {row("Debit attempts scheduled", agent.attempts, base.attempts, f"{saved_attempts} fewer")}
 {row("Attempts a retry could not fix", agent.futile_attempts, base.futile_attempts, f"{saved_futile} avoided")}
 {row("Attempts inside NPCI restricted bands", agent.attempts_in_restricted_window, base.attempts_in_restricted_window, f"{saved_windows} avoided")}
-{row("Customer contacts", agent.messages, base.messages, "baseline never contacts anyone")}
+{row("Customer contacts scheduled", agent.messages, base.messages, "baseline never contacts anyone")}
 {row("Cases held for a human", agent.held_for_human, 0, "baseline has no such path")}
 {row("Cases closed as uneconomic", agent.closed_uneconomic, 0, "unreachable at entry rungs; see below")}
 
@@ -313,6 +313,7 @@ def render_terminal(
     total_paise: int,
     generated_at: str,
     model_spend_paise: int = 0,
+    exposure: dict[str, float] | None = None,
 ) -> str:
     """The same numbers as `render()`, for a terminal rather than a doc.
 
@@ -333,6 +334,41 @@ def render_terminal(
         (f"batch measurement   {cases_count} cases · Rs {total_paise / rupee:,.0f} at risk"
          f" · {holdout} held out · {generated_at}"),
         "",
+    ]
+
+    if exposure:
+        def money(label: str, paise: float, cases: int, note: str = "") -> str:
+            share = (100 * paise / total_paise) if total_paise else 0
+            return (f"  {label:<{w}}{'Rs ' + format(paise / rupee, ',.0f'):>12}"
+                    f"{share:>6.1f}%{cases:>6}   {note}")
+
+        lines += [
+            (f"  {'money at risk, by what a retry can reach':<{w}}{'amount':>12}"
+             f"{'share':>6}{'cases':>6}"),
+            money("no retry can fix — needs re-authorisation",
+                  exposure["unreachable_paise"], int(exposure["unreachable_cases"]),
+                  "a dead mandate; Razorpay's own wording"),
+            money("must not be taken", exposure["must_not_take_paise"],
+                  int(exposure["must_not_take_cases"]), "recovering it would be the failure"),
+            money("unclassified, a person decides", exposure["unclassified_paise"],
+                  int(exposure["unclassified_cases"]), "held, not guessed at"),
+            money("retry not ruled out", exposure["contested_paise"],
+                  int(exposure["contested_cases"]), "both policies already attempt it"),
+            "",
+            (f"  ceilings at perfect conversion    baseline Rs "
+             f"{exposure['baseline_ceiling_paise'] / rupee:,.0f}"
+             f"   agent Rs {exposure['agent_ceiling_paise'] / rupee:,.0f}"),
+            (f"  the gap between them              Rs "
+             f"{exposure['dominance_paise'] / rupee:,.0f}"
+             f"   — diagnosed, priced and queued to re-authorisation"),
+            (f"  chasing it costs                  Rs "
+             f"{exposure['breakeven_spend_paise'] / rupee:,.0f}"
+             f"   breaks even at {exposure['breakeven_rate'] * 100:.3f}%"
+             f", {exposure['breakeven_leverage']:.0f}x exposure per rupee"),
+            "",
+        ]
+
+    lines += [
         f"  {'':<{w}}{'agent':>8}{'baseline':>10}",
         row("debit attempts scheduled", agent.attempts, base.attempts,
             f"{base.attempts - agent.attempts} fewer"),
@@ -341,7 +377,7 @@ def render_terminal(
         row("attempts inside NPCI restricted bands",
             agent.attempts_in_restricted_window, base.attempts_in_restricted_window,
             f"{base.attempts_in_restricted_window - agent.attempts_in_restricted_window} avoided"),
-        row("customer contacts", agent.messages, base.messages,
+        row("customer contacts scheduled", agent.messages, base.messages,
             "baseline never contacts anyone"),
         row("cases held for a human", agent.held_for_human, 0,
             "baseline has no such path"),
@@ -355,5 +391,9 @@ def render_terminal(
     for rate, a_rup, b_rup in modelled_recovery(total_paise, agent, [0.20, 0.50]):
         lines.append(f"    {rate:>4.0%} succeed   Rs {a_rup:>9,.0f}  vs  Rs {b_rup:>9,.0f}"
                       f"   (+Rs {a_rup - b_rup:,.0f})")
-    lines += ["", "  full report: docs/batch-measurement.md"]
+    lines += [
+        "",
+        ("  full report: docs/batch-measurement.md   ·   "
+         "what this deployment sends: unhalted capabilities"),
+    ]
     return "\n".join(lines)

@@ -30,9 +30,18 @@ def test_a_notification_gap_starts_by_notifying() -> None:
     assert entry_rung(DiagnosisClass.NOTIFICATION_GAP) is Rung.NUDGE
 
 
-def test_recoverable_failures_start_free() -> None:
-    for klass in (DiagnosisClass.RECOVERABLE_TECHNICAL, DiagnosisClass.RECOVERABLE_BALANCE):
-        assert entry_rung(klass) is Rung.SILENT_RETRY
+def test_a_technical_failure_starts_free() -> None:
+    """Nobody can tell you when a gateway will recover, so retrying is the
+    only move — and it costs nothing."""
+    assert entry_rung(DiagnosisClass.RECOVERABLE_TECHNICAL) is Rung.SILENT_RETRY
+
+
+def test_an_empty_account_asks_before_it_guesses() -> None:
+    """The one failure whose fix depends on a fact no API reports: when the
+    customer will have money. Three silent retries on a fixed schedule spend
+    NPCI's whole allowance guessing at a date one question would settle, so
+    this class enters at the rung that can ask."""
+    assert entry_rung(DiagnosisClass.RECOVERABLE_BALANCE) is Rung.NUDGE
 
 
 def test_a_revoked_mandate_has_no_ladder_at_all() -> None:

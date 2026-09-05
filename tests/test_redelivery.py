@@ -55,7 +55,9 @@ def test_calling_it_again_with_the_same_signal_does_not_schedule_twice(store) ->
     first = handle_failure(store, signal(), now=NOW)
     handle_failure(store, signal(), now=NOW)
 
-    assert len(store.pending_actions(case_id=first.id)) == 1
+    # Two, not four: a balance failure schedules the question and the
+    # fallback retry behind it, and a redelivery must add neither again.
+    assert len(store.pending_actions(case_id=first.id)) == 2
 
 
 def test_the_second_call_is_recorded_as_already_known_not_a_second_opening(store) -> None:
@@ -90,4 +92,4 @@ def test_pre_creating_the_case_before_calling_handle_failure_still_reports_it_as
 
     ingest = next(r for r in store.timeline(case.id) if r.decision_type == "ingest")
     assert ingest.action == "case-opened"
-    assert len(store.pending_actions(case_id=case.id)) == 1
+    assert len(store.pending_actions(case_id=case.id)) == 2

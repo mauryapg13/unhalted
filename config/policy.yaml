@@ -34,6 +34,20 @@ contact:
   open: "08:00"
   close: "19:00"
 
+  # How many automated messages one customer may receive in a rolling window,
+  # counted across every case and every channel. The retry cap bounds debits
+  # and says nothing about messages: a customer with four failing
+  # subscriptions consumed no retries at all and still heard from us four
+  # times in four days. A nudge over this budget is deferred, never dropped.
+  # Confirmations that a payment succeeded do not count — they end a
+  # conversation rather than pressing one.
+  #
+  # The window is named rather than assumed to be a week: it was seven days
+  # first, and a constant called `week` holding fourteen days is the kind of
+  # name that outlives its meaning.
+  max_per_window: 1
+  window: "14d"
+
 retries:
   # NPCI's allowance: one execution plus three retries per billing cycle.
   cap: 3
@@ -47,6 +61,14 @@ retries:
     recoverable-balance: ["1d", "1d", "2d"]
     notification-gap: ["25h", "25h", "25h"]
   default_backoff: "6h"
+  # How long a balance case waits for the customer to name a date before
+  # falling back to the blind backoff above. An empty account is the one
+  # failure whose fix depends on a fact only the customer has — when money
+  # arrives — so this asks first and guesses second. 25 hours matches the
+  # window Razorpay already requires between a pre-debit notification and
+  # the charge it precedes, rather than inventing a second number for the
+  # same idea: how long to leave a customer to answer.
+  reply_grace: "25h"
 
 confidence:
   # Policy, not measurement — see Diagnosis.authority's own docstring.

@@ -31,7 +31,7 @@ import pathlib
 import sys
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from unhalted import clock, config, tui
 from unhalted.runner import run_due
@@ -58,6 +58,8 @@ STYLE = {
     "REVIEWED": tui.VIOLET,
     "RECOVERED": tui.GREEN,
     "ESCALATED": tui.RED,
+    "REPLY": tui.VIOLET,
+    "STOPPED": tui.RED,
 }
 
 #: Cancellation reasons that mean "this case now needs a person" — every stop
@@ -67,7 +69,28 @@ STYLE = {
 ESCALATION_REASONS = frozenset({"HELD_FOR_HUMAN", "DISPUTE", "DISTRESS", "CHARGEBACK", "REG_HOLD"})
 
 
-def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
+def row_time(action: dict[str, Any], key: str, *, fallback: datetime) -> datetime:
+    """When something happened to a queue row, from the row itself.
+
+    Every other line in this log is stamped with the instant the thing
+    happened, read off an audit record. Queue rows were the exception: they
+    were stamped with the poll tick that first *noticed* them, which is the
+    same as the real time only for a scheduler that was already running. Open
+    the log against an existing database and every historical schedule and
+    cancellation backfills to the current second, so a stop from four days ago
+    and a retry armed this morning print as if they happened together — the
+    one thing an append-only log exists to keep straight.
+
+    `fallback` is used only when the row genuinely carries no such time: rows
+    cancelled before this column existed. Substituting the poll clock there
+    would be inventing one again, so the fallback is another time off the same
+    row, not off this process's clock.
+    """
+    raw = action.get(key)
+    return datetime.fromisoformat(raw) if raw else fallback
+
+
+def cancellation_event(action: dict[str, Any], *, now: datetime) -> Line | None:
     """One cancelled action, or `None` for the one reason that already gets
     its own distinct event elsewhere (RECOVERED, via `audit_lines`) and would
     otherwise print twice for the same real thing that happened.
@@ -81,19 +104,50 @@ def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
     reason = action["cancel_reason"] or ""
     if reason == "RECOVERED":
         return None
+    created = row_time(action, "created_at", fallback=now)
+    at = row_time(action, "cancelled_at", fallback=created)
     if reason in ESCALATION_REASONS:
         return event("ESCALATED", action["case_id"],
-                     f"{action['kind']}  held for a human — {reason}", now=now)
-    return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=now)
+                     f"{action['kind']}  held for a human — {reason}", now=at)
+    return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=at)
 
 
-def event(kind: str, case_id: str, detail: str, *, now: datetime) -> str:
+#: Order for events sharing one timestamp, causes before effects. A reply is
+#: read, the stop it triggers fires, and the actions that stop cancels are
+#: cancelled — all inside the same second, and a log that prints those three
+#: backwards argues the opposite of what happened.
+TIE_ORDER = {
+    "REPLY": 0, "REVIEWED": 1, "RECOVERED": 2, "STOPPED": 3, "ESCALATED": 4,
+    "CANCELLED": 5, "SCHEDULED": 6, "DUE": 7, "RECLAIMED": 8,
+    "EXECUTED": 9, "DEFERRED": 9, "NO ADAPTER": 9, "FAILED": 9, "HELD": 9,
+}
+
+
+class Line(NamedTuple):
+    """One printable event, with what it takes to put it in order.
+
+    The view used to print in the order it happened to gather things —
+    cancellations, then pending rows, then the audit trail — which reads
+    correctly only for a scheduler that was already running when each arrived.
+    Opened against an existing database, a whole history arrives in one batch
+    and that grouping overrides chronology: a cancellation from 12:10 printing
+    above the delivery from 12:09 that caused it. Sequence is the entire
+    argument this log exists to make, so it is sorted on the times the events
+    actually carry.
+    """
+
+    at: datetime
+    tie: int
+    text: str
+
+
+def event(kind: str, case_id: str, detail: str, *, now: datetime) -> Line:
     tint = STYLE.get(kind, tui.BLUE)
-    return (
+    return Line(now, TIE_ORDER.get(kind, 9), (
         f"  {tui.paint(f'{now:%H:%M:%S}', tui.DIM)}  "
         f"{tui.pad(tui.chip(kind, tint), 22)} "
         f"{tui.paint(case_id, tui.DIM)}  {detail}"
-    )
+    ))
 
 
 def describe(action: dict[str, Any], now: datetime) -> str:
@@ -110,7 +164,7 @@ def describe(action: dict[str, Any], now: datetime) -> str:
 
 def audit_lines(
     store: Store, seen: set[tuple[str, str, str]], *, now: datetime,
-) -> list[str]:
+) -> list[Line]:
     """Executions and human decisions, both read from the audit trail rather
     than from the runner's own report — so a pass run by another worker, the
     HTTP endpoint, or a reviewer in a different terminal all show up here too.
@@ -121,11 +175,31 @@ def audit_lines(
     then did about it. Recovery — a customer actually paying through the
     recovery link — is the same shape of gap: the case closes in the store,
     and nothing here said so until this branch existed.
+
+    Every hard stop is the same shape of gap again, found later: `apply_stop`
+    and a reply's `needs_human` path both write a `stop` record regardless of
+    whether anything was actually pending to cancel. `cancellation_event`
+    below only ever fires from a *cancelled action row* — so a stop landing
+    on a case with nothing left pending (a nudge that had already delivered,
+    say) cancelled zero rows and produced zero lines, even though the case
+    really did just move to `held-for-human` or close outright. `reply` is
+    included alongside it so the cause prints before the effect it caused,
+    the same ordering `cancellation_event` already gives cancellations.
+
+    Each line is stamped with `record.at` — when the decision actually
+    happened — not the poll tick that first noticed it. A worker executing
+    under `--at` (rehearsal) or a backfill on a freshly started scheduler
+    both make those two times genuinely different; stamping with `now`
+    printed a rehearsed 08:00 execution as if it happened at whatever second
+    this viewer polled, which for anything outside contact hours reads as a
+    violation that never occurred.
     """
-    lines: list[str] = []
+    lines: list[Line] = []
     for case in store.all_cases():
         for record in store.timeline(case.id):
-            if record.decision_type not in ("execution", "human-review", "recovery"):
+            if record.decision_type not in (
+                "execution", "human-review", "recovery", "reply", "stop",
+            ):
                 continue
             marker = (record.case_id, record.at.isoformat(), record.action)
             if marker in seen:
@@ -133,10 +207,21 @@ def audit_lines(
             seen.add(marker)
             if record.decision_type == "human-review":
                 who = record.human_actor or "a reviewer"
-                lines.append(event("REVIEWED", case.id, f"{record.action}, by {who}", now=now))
+                lines.append(
+                    event("REVIEWED", case.id, f"{record.action}, by {who}", now=record.at)
+                )
                 continue
             if record.decision_type == "recovery":
-                lines.append(event("RECOVERED", case.id, record.action, now=now))
+                lines.append(event("RECOVERED", case.id, record.action, now=record.at))
+                continue
+            if record.decision_type == "reply":
+                lines.append(event("REPLY", case.id, record.outcome or record.action, now=record.at))
+                continue
+            if record.decision_type == "stop":
+                lines.append(
+                    event("STOPPED", case.id, f"{record.action} — {record.outcome}",
+                          now=record.at)
+                )
                 continue
             state = record.action.split(":")[-1].strip().upper()
             kind = {
@@ -144,7 +229,7 @@ def audit_lines(
                 "NO-ADAPTER": "NO ADAPTER",
                 "PENDING": "DEFERRED",
             }.get(state, state)
-            lines.append(event(kind, case.id, record.outcome or record.action, now=now))
+            lines.append(event(kind, case.id, record.outcome or record.action, now=record.at))
     return lines
 
 
@@ -200,7 +285,7 @@ def main() -> int:
     try:
         while True:
             now = stated if args.at else windows.as_ist(datetime.now(tz=windows.IST))
-            lines: list[str] = []
+            lines: list[Line] = []
 
             # Cancellations first. Within one poll a stop rule cancels and then
             # reschedules, and printing the new row above the cancelled ones
@@ -219,8 +304,8 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
-                lines.append(event("SCHEDULED", action["case_id"],
-                                   describe(action, now), now=now))
+                lines.append(event("SCHEDULED", action["case_id"], describe(action, now),
+                                   now=row_time(action, "created_at", fallback=now)))
 
             # Due but not yet executed, so a viewer sees the moment arrive even
             # when nothing is running the work.
@@ -234,8 +319,12 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
+                # An action becomes due at the moment it was scheduled for,
+                # not at the poll that spots it. On a scheduler opened against
+                # an existing database those differ by however long it sat.
                 lines.append(event("DUE", action["case_id"],
-                                   f"{action['kind']} is ready to run", now=now))
+                                   f"{action['kind']} is ready to run",
+                                   now=datetime.fromisoformat(when)))
 
             if args.run:
                 report = run_due(store, now=now)
@@ -248,7 +337,7 @@ def main() -> int:
 
             if lines:
                 idle_ticks = 0
-                print("\n".join(lines), flush=True)
+                print("\n".join(ln.text for ln in sorted(lines)), flush=True)
             else:
                 idle_ticks += 1
                 if idle_ticks % 20 == 0:

@@ -101,7 +101,7 @@ def main() -> int:
         source="inject",
         method=METHOD,
         error_reason=reason,
-        error_source=ERROR_SOURCE,
+        error_source=ERROR_SOURCE[reason],
     )
     existing = store.case_for_payment(signal.payment_id)
     case = handle_failure(store, signal, now=now)

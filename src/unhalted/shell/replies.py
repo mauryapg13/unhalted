@@ -153,6 +153,24 @@ def decide(
         out.stop_code = "OPT_OUT"
         out.rules_fired.append("STOP_RULE:OPT_OUT")
         out.reasons.append("they asked not to be contacted")
+        # "Mujhe nhi chaiye. cancel kro" reads as both, and firing only the
+        # first swallowed the second: opt-out clears its bar at 0.50 by design
+        # — missing a stop costs a compliance failure — so a 0.5 opt-out
+        # returned before a 0.95 cancellation was ever examined. Contact was
+        # suppressed, nobody was told to cancel anything, and the mandate went
+        # on billing somebody the system had just promised never to contact
+        # again. The one thing they actually asked for was the one thing that
+        # did not happen.
+        #
+        # These are two different asks, not two readings of one. The stop still
+        # wins on contact; the cancellation still reaches a person.
+        if parsed.has(Intent.CANCELLATION_REQUEST, at_least=CANCELLATION):
+            out.needs_human = True
+            out.rules_fired.append("CANCELLATION_REQUESTED")
+            out.reasons.append(
+                "the same reply asks to cancel; that is prepared for a human rather "
+                "than executed, and suppressing contact does not answer it"
+            )
         return out
 
     # 4. Cancellation, but only on strong evidence.

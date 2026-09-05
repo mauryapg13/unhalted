@@ -29,7 +29,15 @@ from unhalted.models import AuditRecord, Case, Diagnosis, DiagnosisClass, Failur
 from unhalted.shell import windows
 
 #: Audit actions that mean a debit was actually put on the calendar.
-_SCHEDULED = ("retry at", "retry realigned to")
+#:
+#: "fallback retry" belongs here for the same reason the other two do: it is
+#: a real row in `pending_actions` with a real due time that a real worker
+#: will claim. A balance case asks the customer when to try and arms one of
+#: these behind the question — counting the question and not the debit would
+#: undercount this system's own attempts, which is the direction of error
+#: this project can least afford, since the headline number it reports is
+#: how few attempts it spends against the baseline's.
+_SCHEDULED = ("retry at", "retry realigned to", "fallback retry at")
 
 #: Short markers, because each attempt has to fit on one line. Spelled out
 #: underneath the table rather than left as jargon.

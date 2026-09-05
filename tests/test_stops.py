@@ -186,7 +186,10 @@ def test_a_debit_above_the_card_ceiling_is_never_scheduled(store: Store) -> None
     schedule = [r for r in store.timeline(case.id) if r.decision_type == "schedule"]
 
     assert kinds == ["ingest", "diagnosis", "escalation", "schedule"]
-    assert schedule[0].action == "retry refused on amount"
+    # A balance failure asks the customer for a date and arms a fallback
+    # retry behind it; the ceiling refuses that fallback for the same reason
+    # it refuses any other retry, and says so in the same terms.
+    assert schedule[0].action == "fallback retry refused on amount"
     assert schedule[0].rules_fired == ["LIMIT:WOULD_FAIL"]
     assert "fails automatically" in schedule[0].outcome
 
@@ -223,7 +226,9 @@ def test_a_permissible_amount_still_schedules_a_retry(store: Store) -> None:
 
     case = handle_failure(store, big_signal(499 * 100), now=datetime(2026, 9, 1, 14, 0, tzinfo=IST))
     schedule = next(r for r in store.timeline(case.id) if r.decision_type == "schedule")
-    assert schedule.action.startswith("retry at")
+    # "fallback" because a balance failure asks the customer for a date first
+    # — the retry behind that question is still a real, scheduled retry.
+    assert schedule.action.startswith("fallback retry at")
 
 
 # -- which stops leave a case needing a person --------------------------------
@@ -274,10 +279,89 @@ def test_a_revocation_cancels_the_retry_the_agent_scheduled_itself(store: Store)
     case = handle_failure(store, signal("pay_REVOKE", "cust_revoke"), now=now)
 
     pending = store.pending_actions(case_id=case.id)
-    assert [a["kind"] for a in pending] == ["retry"], "the scheduled retry must be trackable"
+    # A balance failure schedules both halves at once: the question asking
+    # when to try, and the fallback retry that runs only if nobody answers.
+    # A revocation has to reach both — leaving either armed would contact or
+    # charge somebody who has withdrawn permission.
+    assert [a["kind"] for a in pending] == ["nudge", "retry"], (
+        "both scheduled actions must be trackable"
+    )
 
     cancelled = apply_stop(
         store, "REVOKED", case_id=case.id, customer_ref="cust_revoke", now=now
     )
-    assert cancelled == 1
+    assert cancelled == 2
     assert store.pending_actions(case_id=case.id) == []
+
+
+def test_a_cancellation_records_when_it_happened(store: Store) -> None:
+    """A queue row has to carry its own cancellation time.
+
+    Without it the scheduler view had no time to show for a cancelled action
+    and substituted its own poll clock, so opening the log against an existing
+    database dated every historical stop to the second the viewer started.
+    An append-only log whose whole argument is *this was cancelled before that
+    could run* cannot source its timestamps from whoever happens to be
+    watching.
+    """
+    case = store.open_case(signal("pay_STAMP", "cust_stamp"))
+    scheduled = datetime(2026, 9, 1, 14, 0, tzinfo=IST)
+    store.schedule_action(case.id, case.customer_ref, "retry", scheduled, scheduled)
+
+    stopped_at = datetime(2026, 9, 1, 16, 30, tzinfo=IST)
+    apply_stop(
+        store, "OPT_OUT", case_id=case.id, customer_ref=case.customer_ref, now=stopped_at
+    )
+
+    [row] = store.actions(state="cancelled", case_id=case.id)
+    assert datetime.fromisoformat(row["cancelled_at"]) == stopped_at, (
+        "the cancellation is stamped when it happened, not when it is read back"
+    )
+
+
+def test_an_opt_out_that_also_asks_to_cancel_still_reaches_a_person(store: Store) -> None:
+    """Two asks in one reply, not two readings of one.
+
+    "Mujhe nhi chaiye. cancel kro" parsed as cancellation-request at 0.95 and
+    opt-out at 0.50. Opt-out clears its bar at 0.50 deliberately — missing a
+    stop costs a compliance failure — and `decide` returns at the first branch
+    that matches, so the weak signal was fired and the strong one discarded.
+    Contact was suppressed, nobody was told to cancel anything, and the mandate
+    went on billing somebody the system had just promised never to contact
+    again. The one thing they actually asked for was the one thing that did not
+    happen.
+    """
+    from unhalted import agent as agent_module
+    from unhalted.agent import handle_reply
+    from unhalted.models import DetectedIntent, Intent, ParsedReply, Sentiment
+
+    case = store.open_case(signal("pay_CANCEL", "cust_cancel"))
+    now = datetime(2026, 9, 6, 10, 0, tzinfo=IST)
+
+    both = ParsedReply(
+        raw="Mujhe nhi chaiye. cancel kro",
+        intents=[
+            DetectedIntent(type=Intent.CANCELLATION_REQUEST, confidence=0.95,
+                           evidence="cancel kro"),
+            DetectedIntent(type=Intent.OPT_OUT, confidence=0.50,
+                           evidence="Mujhe nhi chaiye"),
+        ],
+        sentiment=Sentiment.NEUTRAL,
+    )
+    original = agent_module.parse_reply
+    agent_module.parse_reply = lambda text, context="": both
+    try:
+        _, outcome = handle_reply(store, case, both.raw, now=now)
+    finally:
+        agent_module.parse_reply = original
+
+    assert outcome.stop_code == "OPT_OUT", "the stop still wins on contact"
+    assert "CANCELLATION_REQUESTED" in outcome.rules_fired, (
+        "and the cancellation still has to reach a person"
+    )
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN, (
+        "an opt-out carries no terminal state, so nothing else would hold this case"
+    )
+    assert store.contact_suppression(customer_ref="cust_cancel") is not None, (
+        "and they are still not contacted"
+    )

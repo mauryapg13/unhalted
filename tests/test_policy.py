@@ -59,11 +59,13 @@ def minimal() -> dict:
     return {
         "version": "test",
         "npci": {"restricted_bands": [["10:00", "13:00"]], "rule_version": "v"},
-        "contact": {"open": "08:00", "close": "19:00"},
+        "contact": {"open": "08:00", "close": "19:00",
+                    "max_per_window": 1, "window": "14d"},
         "retries": {
             "cap": 3,
             "backoff": {"recoverable-technical": ["30m"]},
             "default_backoff": "6h",
+            "reply_grace": "25h",
         },
         "confidence": {"auto_execute": 0.9, "auto_execute_sampled_qa": 0.7},
         "reply_policy": {

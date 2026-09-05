@@ -35,7 +35,8 @@ def main() -> int:
         signal = FailureSignal(
             payment_id=f"pay_EXPLORE_{reason}", customer_ref="cust_explore",
             amount_paise=49900, occurred_at=datetime.now(tz=UTC),
-            source="explore", method=METHOD, error_reason=reason, error_source=ERROR_SOURCE,
+            source="explore", method=METHOD, error_reason=reason,
+            error_source=ERROR_SOURCE[reason],
         )
         diagnosed.append((reason, gloss, diagnose(signal)))
 

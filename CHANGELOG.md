@@ -3,6 +3,309 @@
 ## [Unreleased]
 
 ### Added
+- `docs/verifying.md` — the guide for somebody reviewing this rather than reading it. Two levels:
+  the first needs no accounts, no keys and no network and still proves the pipeline, the rules and
+  all 538 tests; the second runs the same code against Razorpay's live test API. Every command
+  carries what it should print, including the ones whose correct answer is a refusal. Covers
+  resetting the database — all three WAL files, not just the main one — and ends with a table
+  mapping each claim in the README to the test that checks it. Linked from the README's "Running
+  it" section.
+
+### Fixed
+- The batch report's exposure rows read as a contradiction: Rs 12,514 labelled "unreachable by
+  retry" while the agent's ceiling counted it. Both were right — the money is unreachable *by a
+  retry*, and the agent routes it to re-authorisation instead — but the row now says which action
+  it needs rather than leaving a reader to infer it. More importantly the ceiling is qualified in
+  place: re-authorisation is diagnosed, priced and queued on this deployment and has no adapter to
+  send. The first attempt at saying so put two lines of caveat under the headline figure and turned
+  a result screen into a disclaimer; the gap line now names the action that closes it — "diagnosed,
+  priced and queued to re-authorisation" — and the footer points at `unhalted capabilities`, which
+  is the command whose whole job is stating what this deployment can and cannot do.
+
+### Added
+- `unhalted report` now leads with the money, sorted by what a retry can actually reach: unreachable,
+  must-not-be-taken, unclassified, and contested — then both policies' ceilings at perfect
+  conversion, the gap between them, and what closing that gap costs. The counted rows underneath say
+  what each policy *did*; this says what was there to be done, which is the half a reader asks about
+  first and the report could not answer. `unhalted breakeven` computed it already, but only over
+  stored cases, so the 300-case batch had no version of it at all. Persisted to
+  `docs/batch-measurement.json` by `scripts/run_batch.py` rather than recomputed, so the terminal
+  view stays a read of one run's numbers.
+
+### Fixed
+- The batch report labelled a row "customer contacts" where the figure is contacts *scheduled*. The
+  batch measures ladder decisions; the contact ceiling is enforced at send time in the runner, so
+  under 1-per-14-days at most 100 of those 189 reach anybody inside a fortnight — the batch has 300
+  cases across 100 distinct customers. Both readings of the old label were defensible and one of
+  them contradicted a hard rule stated three sections earlier in the same README. No number moved.
+
+### Fixed
+- **A reply asking to cancel was swallowed by a weak opt-out read.** "Mujhe nhi chaiye. cancel kro"
+  parsed as cancellation-request at 0.95 and opt-out at 0.50. `replies.decide` is ordered
+  most-protective-first and each branch returns; opt-out is step 3 and clears its bar at 0.50 by
+  design — missing a stop costs a compliance failure — so the weak signal fired and the strong one
+  was never examined. Contact was suppressed, nobody was told to cancel anything, the case stayed
+  `open`, and the mandate went on billing somebody the system had just promised never to contact
+  again. The one thing they actually asked for was the one thing that did not happen. These are two
+  different asks, not two readings of one: the stop still wins on contact, and a cancellation at or
+  above its own threshold now also sets `needs_human`, the same shape `PRECEDENCE:DISPUTE_OVER_PROMISE`
+  already had one branch above.
+- `handle_reply` returned on `stop_code` before it could act on `needs_human`, so the outcome above
+  would have been recorded and then ignored. A stop whose rule carries no terminal state — `OPT_OUT`
+  is the one, because an opt-out does not settle the debt — now holds the case for a person when the
+  reply needs one. Rules that name their own terminal state still win with it.
+
+### Added
+- Every nudge carries a payable link, `ASK_DATE` included. Asking a customer to name a date and
+  giving them no way to just pay makes somebody who has the money today do extra work to hand it
+  over — and rung 2 is named "message with a pay link", which was a contradiction on screen for the
+  one variant that had none. The link is one Razorpay API call per nudge, which is the cost this
+  originally avoided.
+
+### Changed
+- The terminal views read as one system rather than four. `unhalted case` had no banner at all —
+  the one view an auditor lands on was the only one that did not say what it was. A long outcome
+  was cut at a hard 96 characters, wider than the 92-column ceiling every other view respects, so
+  it was cut twice and neither cut said so: `tui.ellipsis` shortens on a word boundary and marks
+  it. A pending action printed a raw ISO timestamp with microseconds beside views that render
+  every other time as `07 Sep 15:16  in 2d 00h`. `step=None` showed a Python word where a person
+  reads an answer, now `—` via `tui.field`. Colour is used only where it already carries meaning:
+  the confidence band is tinted by what it permits (`tui.authority` — green acts, amber acts and
+  is sampled, red does not), the run-due counters dim their zeros so the ones that happened carry
+  the line (`tui.counter`), and the confidence value is bold because it is what the gating rests
+  on. No wording, no layout and no behaviour changed.
+
+### Added
+- `scripts/demo_inject.sh` — post N failed payments sharing one error shape over the real signed
+  webhook, so a taxonomy gap can be demonstrated without a screenful of inline shell. Not a
+  shortcut past the pipeline: each payment carries a real HMAC signature and goes to the same
+  endpoint Razorpay posts to, so the signature check, the idempotency check, the normaliser and
+  the taxonomy all run. It exists because `scripts/inject.py` covers the five *documented* card
+  scenarios and showing an unclassified failure needs a reason that deliberately is not one of
+  them. Refuses to start when its port is already in use, rather than posting into a stale server
+  bound to a different database and leaving the cases apparently vanished — which is exactly what
+  happened while working out the command it replaces.
+
+### Added
+- **A contact ceiling, one message per customer per fortnight** (`contact.max_per_window`, over
+  `contact.window`), counted across
+  every case they have and every channel. The retry cap bounds *debits* and says nothing about
+  *messages*: a customer with four failing subscriptions consumed no retries at all — the balance
+  flow asks before it retries — and still received four messages in four days, each individually
+  correct, because nothing in the system had a view of the person. `windows.contact_budget` is the
+  rule, `store.contacts_since` counts from the audit trail rather than a counter kept beside it,
+  and `runner.execute_nudge` asks before every send. A message over budget is deferred to when the
+  budget frees, never dropped: losing a customer's only notice that their subscription is lapsing
+  is worse than delivering it late. Confirmations that a payment arrived do not count against it.
+
+### Fixed
+- The README listed that ceiling among the hard rules and `shell/notify.py`'s docstring said it sat
+  above delivery, for some time before anything counted contacts. Both now describe what runs.
+- The README's "Specification as test suite" section claimed every stopping rule in
+  `tests/features/` "is a check that goes red if the shell weakens". The feature files are parsed
+  for shape by `tests/test_specification.py`; no scenario is bound to executable steps, and
+  `tests/step_defs/` holds only `__init__.py`. The constraints are tested — thoroughly, in
+  hand-written pytest — but not through the Gherkin, and the contact ceiling is what that gap cost:
+  specified in the feature file, advertised in the README, never once run. The section now says
+  what actually executes.
+
+### Fixed
+- **A stop now outlives the queue it emptied.** `apply_stop` cancelled every pending action in
+  scope and, for `OPT_OUT` — the one contact-barring rule with no terminal state, because an
+  opt-out does not close the debt — that cancellation was the whole of its lasting effect. Nothing
+  was written down, so the case stayed `open`, `handle_reply` had nothing to consult, and the
+  customer's own next message re-armed the ladder: in rehearsal, a retry was scheduled two minutes
+  after the audit trail recorded that contacting this customer would be a compliance failure. The
+  rule's `suppresses_contact=True` had been read by nothing since it was written. A stop that bars
+  contact now writes a `contact_suppressions` row at the rule's own scope, checked in three places
+  — `handle_reply` refuses before the model is called, `handle_failure` opens a later case but
+  schedules nothing against it, and the runner checks again before dispatch, because delivery is
+  at-least-once. Nothing a customer says lifts one: not a date, not "actually, continue", not a
+  payment.
+- **The scheduler view stamped queue events with its own clock.** `SCHEDULED`, `CANCELLED` and
+  `DUE` were dated to the poll tick that noticed the row rather than to when the thing happened, so
+  opening the log against an existing database backfilled every historical event to the second the
+  viewer started — the one thing an append-only log exists to keep straight. Cancellations had no
+  time to read, so `pending_actions.cancelled_at` now records one and `cancel_pending` takes a
+  `now` from all seven production call sites; `SCHEDULED` reads `created_at` and `DUE` reads
+  `scheduled_for`. `store.py` still never invents a time — a caller that passes none leaves the
+  column NULL and the viewer falls back to another time off the same row.
+- The scheduler view printed an accurate log out of order. Events were gathered
+  cancellations-first, then pending rows, then the audit trail — which reads correctly only for a
+  scheduler that was already running when each arrived. Opened against an existing database the
+  whole history lands in one batch and that grouping overrode chronology, printing a cancellation
+  above the delivery a minute earlier that caused it. The batch is now ordered on the times its
+  events carry, with a tie-break that keeps cause above effect within a single second: a reply is
+  read, the stop it triggers fires, then the actions that stop cancels are cancelled.
+- `scripts/session.py` froze `now` at startup and stamped the whole conversation with it, so
+  replies typed minutes apart shared one timestamp and the audit trail could not order them. A
+  reply is now stamped when it is typed; under `--at` the stated time still stands, since a
+  rehearsal is meant to have a fixed clock.
+
+### Added
+- `unhalted stops` — who this system may not contact, and since when — and `unhalted lift-stop <id>
+  --by <name>`, the only route back from a suppression. Deliberately a person's command with a name
+  recorded beside the decision, and no code path from a customer reply reaches it.
+- `tests/test_stop_is_durable.py`: six tests for the half of a stop that was never tested. Every
+  stop rule was checked for firing correctly; none was checked for still being in force a message
+  later, and all nine passed under that test.
+
+### Changed
+- The batch measurement is regenerated against the new balance flow, and the README's results table
+  with it. Attempts fell from 217 to 84 and contacts rose from 56 to 189 in the same change: an
+  empty account no longer gets three silent retries guessing at a payday, it gets one message asking
+  when to try. The README now reads those two rows together rather than leaving them to be read as
+  unrelated wins.
+
+### Fixed
+- The README's own "Honesty about the data" section claimed payment-status verification "runs
+  against Razorpay test mode". `shell/verify.py`'s `RazorpayVerifier` is real and would work, but
+  nothing constructs one, so the live path runs with no verifier at all. The behaviour is the safe
+  one — a case that cannot be verified is held for a person rather than assumed unpaid — but the
+  claim was wrong. It now sits under a new "Built, and deliberately not wired in" heading with the
+  two other capabilities in that state: message drafting, and the upper ladder rungs.
+- The thesis table said the model "drafts messages" without qualification. `core/draft.py` and its
+  compliance lint are real and tested, and every message that actually goes out is one of the plain
+  bodies in `shell/notify.py` — stated directly under the table, since that table is the project's
+  central claim.
+- `docs/capturing-fixtures.md` had the real `RAZORPAY_WEBHOOK_SECRET` written into it in plaintext.
+  Replaced with a pointer to `.env`. **The value is still in git history and must be rotated before
+  the repository is made public.**
+
+### Removed
+- `measure.baseline.agent_would_enter_at`, a two-line wrapper around `ENTRY.get` that nothing ever
+  called.
+
+### Added
+- The README now carries the whole routing table — every documented `error_reason`, the
+  `error_source` values that change the answer, the resulting diagnosis, confidence and entry rung,
+  and the two rungs this deployment has no executor for. Generated from the code and verified end to
+  end rather than described, because "most failures are unambiguous and resolve from a lookup table"
+  was a claim a reader had no way to check. It also makes the two places `error_source` outranks the
+  reason legible: a merchant-side fault, and `credit_failed` without a stated source falling below
+  the confidence threshold instead of guessing which of two documented causes applied.
+
+### Changed
+- **An empty account is asked, not guessed at.** `RECOVERABLE_BALANCE` entered the ladder at
+  `SILENT_RETRY` and spent NPCI's whole allowance on three blind attempts at a date nobody asked
+  about — while `core/reply.py`'s own docstring argued the opposite: whether a retry works depends
+  on when the customer will have money, and no API reports that. It now enters at `NUDGE` with a
+  message that actually asks, arms a fallback retry behind it (`retries.reply_grace`, 25h, plus the
+  usual backoff) for a customer who never answers, and a reply naming a date cancels that fallback
+  and reschedules to the day they gave. Scoped to balance failures only: nobody can tell you when a
+  gateway will recover, so `RECOVERABLE_TECHNICAL` still retries blind, correctly.
+
+### Added
+- `Store.increment_retry_count`, called once per executed retry — see Fixed below for why nothing
+  counted attempts before.
+- `agent.escalate_after_cap`, shared by every path that can be refused by the retry cap.
+- Three nudge messages instead of one (`NudgeVariant`): the first-touch text, the balance question,
+  and an "we tried, here's a link" message for a case whose retries are spent. Reusing the
+  first-touch wording on somebody who just asked for a specific retry date reads as never having
+  listened; the variant is recorded on the action, so the wording is the decision's to make rather
+  than something the executor invents at send time. Asking for a date no longer generates a payment
+  link at all, which also stops it spending Razorpay's test-mode link quota on a message that never
+  carried one.
+- `cases.nudges_suspended_until`, so a promise-to-pay actually suppresses the next nudge.
+
+### Fixed
+- **A merchant's own broken integration was retried like a bank decline.** Checked across every
+  `error_source` Razorpay documents: seven of eight produced a silent retry on `payment_failed`,
+  including `business` — their label for the merchant's own configuration being wrong. Their
+  failure-analysis guide is explicit that "Business failures require corrective action rather than
+  retries... simply retrying the same request won't resolve them." The taxonomy walks most-specific
+  to least, so a source with no rule of its own inherited the reason's permissive wildcard; for
+  these the source is the whole answer, so `MERCHANT_SOURCES` is now checked before the reason and
+  the case is held for a person with no customer contacted about a problem they cannot fix. The two
+  remaining documented business reasons (`international_transaction_not_allowed`,
+  `invalid_currency`) got explicit rules: both already held safely via the unmatched fallback, but
+  read as gaps in the table, so `propose_taxonomy_rule.py` would have kept filing them as rules
+  somebody still had to write. Recorded in `BREAKAGE.md`.
+- **The retry counter had two readers and no writer.** `case.retry_count` was set to 0 on insert and
+  incremented nowhere, so `backoff_for` always returned tier one — the `2h`/`6h` and `1d`/`2d` tiers
+  were real, tested and unreachable — and `retry_count >= RETRY_CAP` could never be true, leaving
+  NPCI's three-attempt cap enforced only in unit tests that set the count by hand. Found by asking
+  what the number would be after three attempts. Recorded in `BREAKAGE.md`.
+- **A refused retry left the case with nothing pending and nobody told.** All three paths that ask
+  for one — the first schedule, a promise-to-pay realignment, a reviewer clearing a held case — wrote
+  "refused" to the audit trail and stopped. They now fall through to `escalate_after_cap`, which
+  walks `ladder.next_rung` to the next rung this deployment can actually execute (re-authorisation,
+  voice and human callback have no executor, and it says so in the record rather than scheduling a
+  dead action) and sends a payable link with the reason it is arriving. A customer who names a date
+  the cap can no longer honour gets that link rather than silence.
+- **`ReplyOutcome.suspend_nudges_until` was computed and read by nothing.** A customer who said "the
+  8th" could still be nudged on the 7th. It is now persisted on the case and enforced in
+  `execute_nudge`, which defers to the named date the same way it defers outside contact hours.
+- **The amount ceiling ran on one retry path out of four.** A debit above the ₹15,000 card ceiling or
+  the mandate's own `max_amount` was refused when first scheduled, and then permitted if a reviewer
+  re-armed it or a promise-to-pay realigned it — the amount did not change because somebody asked
+  again. One `_amount_permitted` check now runs on all four.
+- `measure/compare.py` did not count a balance case's fallback retry as a scheduled attempt, which
+  would have undercounted this system's own debit attempts against the baseline's — the direction of
+  error this project can least afford, given that comparison is its headline number.
+- `core/scenarios.py` supplied `error_source = "gateway"` for all five of its injectable scenarios
+  alike — a placeholder that matched the three real captured fixtures (issue #8) but was never
+  grounded in what each of these five specific reasons actually is. `core/taxonomy.py`'s own rule
+  for `payment_timed_out` reads a different class for `"customer"` than for `"bank"`, and
+  `"gateway"` was neither, so it fell through to the ambiguous fallback every time instead of
+  reaching `NOTIFICATION_GAP`. `ERROR_SOURCE` is now a mapping, one entry per reason, each quoting
+  the source `core/taxonomy.py`'s own rule already names — `payment_timed_out` now correctly reaches
+  `NOTIFICATION_GAP` at `DIRECT`/1.0 confidence. Verified live via `inject.py` and `classify.py`.
+  Recorded in `BREAKAGE.md`.
+- `scripts/session.py --scenario` run a second time against the same database matches back to the
+  same case (by design — deterministic `payment_id`) and correctly prints no message box, since
+  nothing was newly due. Step 4 still said "that boxed text above is what just arrived" anyway,
+  pointing at nothing — it checked whether the case was *ever* delivered a message, reusing that
+  for a claim about *this run* specifically. Now split: a new `execution.at == now` check requires
+  the delivery to be from this exact pass before saying so; a repeat run says plainly that the case
+  was already contacted earlier instead. Recorded in `BREAKAGE.md`.
+- Every hard stop, and a reply's `needs_human` path, writes a real `stop` audit record — but
+  `scripts/schedule.py`'s live view only ever surfaced one from a *cancelled pending-action row*,
+  which a stop landing on a case with nothing left queued (a nudge that had already delivered, say)
+  never produces. Found live: a cancellation reply correctly held a case for a human, and the
+  already-running scheduler showed nothing at all for it. `audit_lines()` now also renders `stop`
+  (as `STOPPED`) and `reply` (as `REPLY`, printed before whatever it caused). Checked against every
+  `decision_type` actually written anywhere in the codebase to confirm these were the only two
+  silently dropped. Recorded in `BREAKAGE.md`.
+- `scripts/schedule.py`'s live view stamped a backfilled execution with the poll tick that noticed
+  it, not `record.at` — the time it actually happened. A rehearsed `--at 08:00` execution, watched
+  by an already-running scheduler polling real time, displayed at whatever second the viewer
+  happened to poll. Outside contact hours, that reads as the exact violation the contact-hours rule
+  exists to prevent, on a run that never did that. Recorded in `BREAKAGE.md`.
+
+### Added
+- `scripts/session.py --scenario REASON` — a real captured payment never reaches a contact rung
+  (issue #8), so the reply loop was previously unreachable by any command in the repository.
+  `--scenario` builds the same injected signal `scripts/inject.py` does, so `--scenario
+  authentication_failed` opens a genuine `NOTIFICATION_GAP` case with a real pay link and the
+  conversation actually attached to it — verified live, including a Hinglish promise-to-pay
+  realigning the retry (`PROMISE_ACCEPTED`, `retry realigned to 2026-10-02`).
+- The reply loop now notices a payment landing while it waits, instead of only ever reacting to
+  what you type. It used to block on `for line in sys.stdin`, which cannot see anything that isn't
+  a line of input — a customer who pays the link mid-conversation got no acknowledgement until
+  someone typed another reply, if ever. `select()` now polls the case's own state once a second
+  alongside waiting on stdin, so `payment received — this case is settled` prints and the script
+  exits the moment `mark_recovered` closes the case, verified live with nothing ever typed at all.
+
+### Fixed
+- `scripts/session.py`'s reply prompt gave no indication of what you were replying to — the actual
+  message printed two screens up, in step 3, under a generic "whatever the ladder scheduled
+  actually runs" title that reads as an internal log line, not a text message arriving on a phone.
+  Step 3 now titles itself "The message reaches the customer" when the diagnosis reaches a contact
+  rung, and step 4 opens by pointing back at the boxed text above it before asking for a reply.
+
+  The first version of this fix checked only whether the diagnosis's rung *can* contact someone,
+  not whether it actually did *this pass* — a nudge deferred by contact hours (08:00-19:00 IST,
+  the same window this system enforces everywhere else) sends nothing at all, and step 4 still
+  claimed a message had "just arrived." Caught live, outside the window: now checked against the
+  audit trail's own execution record, and a deferred nudge gets its own honest step 4 explaining
+  nothing has reached the customer yet, with the `--at` rerun that would actually deliver it.
+- `scripts/session.py` asked for a reply as the customer even on a silent retry — a diagnosis that
+  by design never contacts anyone, so there was never a message to be replying to. It now checks
+  whether the entry rung actually contacts the customer before offering the prompt, and explains
+  why there's nothing to reply to when it doesn't. Recorded in `BREAKAGE.md`.
+
+### Added
 - The README documented the ladder, the batch, and the reply corpus, but not the two things that
   actually close a case or change its own rules: the payment-recovery loop (`payment_link.paid` →
   `RECOVERED`, cancelled actions, a real confirmation) and the two proposers
