@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     scheduled_for TEXT,
     state         TEXT NOT NULL DEFAULT 'pending',
     cancel_reason TEXT,
+    -- When the cancellation happened. Without this a viewer reading the queue
+    -- back has no cancellation time to show and has to substitute its own
+    -- clock, which dates every historical stop to whenever someone happened
+    -- to open the log.
+    cancelled_at  TEXT,
     created_at    TEXT NOT NULL,
     -- A lease, not a lock. A worker that dies mid-action does not strand the
     -- row: the lease expires and the action returns to 'pending'. That makes
@@ -94,6 +99,27 @@ CREATE TABLE IF NOT EXISTS pending_actions (
     attempts      INTEGER NOT NULL DEFAULT 0,
     last_error    TEXT
 );
+
+CREATE TABLE IF NOT EXISTS contact_suppressions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- 'case' or 'customer'. A stop's reach is a property of the rule, and it
+    -- has to be stored, not recomputed: an opt-out reaches every case that
+    -- customer has, including ones opened after they asked to be left alone.
+    scope       TEXT NOT NULL,
+    -- The case id or the customer ref, depending on scope.
+    scope_key   TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    at          TEXT NOT NULL,
+    detail      TEXT NOT NULL DEFAULT '',
+    -- Who lifted it, and when. A suppression is never lifted by the system:
+    -- no reply, no payment and no later signal clears one. Only a named
+    -- person does, which is why this column records a name and not a flag.
+    lifted_at   TEXT,
+    lifted_by   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppression_key
+    ON contact_suppressions(scope, scope_key);
 
 CREATE INDEX IF NOT EXISTS idx_pending_customer
     ON pending_actions(customer_ref, state);
@@ -162,6 +188,7 @@ class Store:
         ("pending_actions", "attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("pending_actions", "last_error", "TEXT"),
         ("pending_actions", "variant", "TEXT"),
+        ("pending_actions", "cancelled_at", "TEXT"),
         ("cases", "nudges_suspended_until", "TEXT"),
     )
 
@@ -641,6 +668,7 @@ class Store:
         *,
         customer_ref: str | None = None,
         case_id: str | None = None,
+        now: datetime | None = None,
     ) -> int:
         """Cancel every pending action in scope, in one transaction.
 
@@ -656,11 +684,17 @@ class Store:
         # 'leased' is included deliberately. A customer revoking while a worker
         # holds the lease must still stop the charge; the runner re-reads state
         # before it acts, so a cancellation lands even mid-flight.
+        # This module never invents a time — every timestamp in it arrives
+        # from a caller that knows what the clock is, including one running
+        # under a `--at` rehearsal. A caller that passes none leaves the column
+        # NULL rather than getting a fabricated instant; the scheduler view
+        # falls back to the row's creation time and says nothing it cannot
+        # source.
         sql = (
-            "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ?"
-            " WHERE state IN ('pending', 'leased')"
+            "UPDATE pending_actions SET state = 'cancelled', cancel_reason = ?,"
+            " cancelled_at = ? WHERE state IN ('pending', 'leased')"
         )
-        params: list[Any] = [reason]
+        params: list[Any] = [reason, now.isoformat() if now else None]
         if customer_ref:
             sql += " AND customer_ref = ?"
             params.append(customer_ref)
@@ -670,6 +704,91 @@ class Store:
 
         with self._tx() as conn:
             return int(conn.execute(sql, params).rowcount)
+
+    # -- contact suppression ---------------------------------------------
+
+    def suppress_contact(
+        self,
+        *,
+        scope: str,
+        scope_key: str,
+        code: str,
+        at: datetime,
+        detail: str = "",
+    ) -> None:
+        """Record that automated contact is barred, durably.
+
+        `cancel_pending` empties the queue as it stands; this is what makes the
+        stop outlive that instant. Without it a customer who said STOP was
+        clear of everything pending at that second and nothing more, so the
+        next inbound message re-armed the ladder and the system contacted
+        somebody who had asked it not to.
+        """
+        with self._tx() as conn:
+            conn.execute(
+                "INSERT INTO contact_suppressions (scope, scope_key, code, at, detail)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (scope, scope_key, code, at.isoformat(), detail),
+            )
+
+    def contact_suppression(
+        self, *, case_id: str | None = None, customer_ref: str | None = None
+    ) -> dict[str, Any] | None:
+        """The suppression in force here, or `None`.
+
+        Case scope and customer scope are both checked, because a case is
+        suppressed either by a stop that landed on it or by one that landed on
+        the person it belongs to. The earliest still-standing one is returned:
+        when several apply, the one that has been in force longest is the one
+        that should have prevented the most.
+        """
+        clauses, params = [], []
+        if case_id:
+            clauses.append("(scope = 'case' AND scope_key = ?)")
+            params.append(case_id)
+        if customer_ref:
+            clauses.append("(scope = 'customer' AND scope_key = ?)")
+            params.append(customer_ref)
+        if not clauses:
+            return None
+        sql = (
+            f"SELECT * FROM contact_suppressions WHERE lifted_at IS NULL"
+            f" AND ({' OR '.join(clauses)}) ORDER BY at LIMIT 1"
+        )
+        with self._read() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+
+    def standing_suppressions(self) -> list[dict[str, Any]]:
+        """Every suppression still in force, oldest first.
+
+        A person cannot lift what they cannot see, and a stop with no way to
+        review it is not a policy, it is a dead end.
+        """
+        with self._read() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "SELECT * FROM contact_suppressions WHERE lifted_at IS NULL"
+                    " ORDER BY at"
+                ).fetchall()
+            ]
+
+    def lift_suppression(
+        self, suppression_id: int, *, by: str, at: datetime
+    ) -> None:
+        """Lift a suppression. Only a named person may.
+
+        There is deliberately no path from a customer reply to here. "Actually,
+        continue" read by a model at 0.9 confidence is not the same thing as
+        consent to be contacted again, and the difference is exactly the one a
+        regulator would ask about.
+        """
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE contact_suppressions SET lifted_at = ?, lifted_by = ?"
+                " WHERE id = ? AND lifted_at IS NULL",
+                (at.isoformat(), by, suppression_id),
+            )
 
     def all_cases(self) -> list[Case]:
         with self._read() as conn:

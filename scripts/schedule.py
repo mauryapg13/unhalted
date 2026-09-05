@@ -69,6 +69,27 @@ STYLE = {
 ESCALATION_REASONS = frozenset({"HELD_FOR_HUMAN", "DISPUTE", "DISTRESS", "CHARGEBACK", "REG_HOLD"})
 
 
+def row_time(action: dict[str, Any], key: str, *, fallback: datetime) -> datetime:
+    """When something happened to a queue row, from the row itself.
+
+    Every other line in this log is stamped with the instant the thing
+    happened, read off an audit record. Queue rows were the exception: they
+    were stamped with the poll tick that first *noticed* them, which is the
+    same as the real time only for a scheduler that was already running. Open
+    the log against an existing database and every historical schedule and
+    cancellation backfills to the current second, so a stop from four days ago
+    and a retry armed this morning print as if they happened together — the
+    one thing an append-only log exists to keep straight.
+
+    `fallback` is used only when the row genuinely carries no such time: rows
+    cancelled before this column existed. Substituting the poll clock there
+    would be inventing one again, so the fallback is another time off the same
+    row, not off this process's clock.
+    """
+    raw = action.get(key)
+    return datetime.fromisoformat(raw) if raw else fallback
+
+
 def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
     """One cancelled action, or `None` for the one reason that already gets
     its own distinct event elsewhere (RECOVERED, via `audit_lines`) and would
@@ -83,10 +104,12 @@ def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
     reason = action["cancel_reason"] or ""
     if reason == "RECOVERED":
         return None
+    created = row_time(action, "created_at", fallback=now)
+    at = row_time(action, "cancelled_at", fallback=created)
     if reason in ESCALATION_REASONS:
         return event("ESCALATED", action["case_id"],
-                     f"{action['kind']}  held for a human — {reason}", now=now)
-    return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=now)
+                     f"{action['kind']}  held for a human — {reason}", now=at)
+    return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=at)
 
 
 def event(kind: str, case_id: str, detail: str, *, now: datetime) -> str:
@@ -252,8 +275,8 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
-                lines.append(event("SCHEDULED", action["case_id"],
-                                   describe(action, now), now=now))
+                lines.append(event("SCHEDULED", action["case_id"], describe(action, now),
+                                   now=row_time(action, "created_at", fallback=now)))
 
             # Due but not yet executed, so a viewer sees the moment arrive even
             # when nothing is running the work.
@@ -267,8 +290,12 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
+                # An action becomes due at the moment it was scheduled for,
+                # not at the poll that spots it. On a scheduler opened against
+                # an existing database those differ by however long it sat.
                 lines.append(event("DUE", action["case_id"],
-                                   f"{action['kind']} is ready to run", now=now))
+                                   f"{action['kind']} is ready to run",
+                                   now=datetime.fromisoformat(when)))
 
             if args.run:
                 report = run_due(store, now=now)

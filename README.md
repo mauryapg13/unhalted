@@ -133,6 +133,11 @@ Sourced from NPCI and Razorpay's recurring-payments documentation, not invented:
 - **Nine hard stops** — revocation, opt-out, dispute, distress, retry cap, ladder exhaustion,
   chargeback, merchant pause and regulatory hold — that no recommendation at any confidence can
   override.
+- **A stop stays in force.** Eight of the nine bar contact, and that bar is stored at the rule's
+  own scope rather than expiring with the queue it emptied. A customer who opts out is not
+  re-entered into automation by anything they later say — not a date, not "actually, continue",
+  not a payment. `unhalted stops` lists what is in force; `unhalted lift-stop <id> --by <name>`
+  is the only way back, and it records the name.
 
 A merchant cannot pause a UPI mandate, only cancel it, so "pause recovery" always means pausing
 this program and never the mandate itself.

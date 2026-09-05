@@ -292,3 +292,28 @@ def test_a_revocation_cancels_the_retry_the_agent_scheduled_itself(store: Store)
     )
     assert cancelled == 2
     assert store.pending_actions(case_id=case.id) == []
+
+
+def test_a_cancellation_records_when_it_happened(store: Store) -> None:
+    """A queue row has to carry its own cancellation time.
+
+    Without it the scheduler view had no time to show for a cancelled action
+    and substituted its own poll clock, so opening the log against an existing
+    database dated every historical stop to the second the viewer started.
+    An append-only log whose whole argument is *this was cancelled before that
+    could run* cannot source its timestamps from whoever happens to be
+    watching.
+    """
+    case = store.open_case(signal("pay_STAMP", "cust_stamp"))
+    scheduled = datetime(2026, 9, 1, 14, 0, tzinfo=IST)
+    store.schedule_action(case.id, case.customer_ref, "retry", scheduled, scheduled)
+
+    stopped_at = datetime(2026, 9, 1, 16, 30, tzinfo=IST)
+    apply_stop(
+        store, "OPT_OUT", case_id=case.id, customer_ref=case.customer_ref, now=stopped_at
+    )
+
+    [row] = store.actions(state="cancelled", case_id=case.id)
+    assert datetime.fromisoformat(row["cancelled_at"]) == stopped_at, (
+        "the cancellation is stamped when it happened, not when it is read back"
+    )

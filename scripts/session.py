@@ -18,6 +18,7 @@ model-written, and says so.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import glob
 import json
 import pathlib
@@ -270,11 +271,18 @@ def main() -> int:
             if not reply:
                 continue
 
+            # A reply happens when it is typed, not when this script started.
+            # Stamping the whole conversation with one frozen `now` collapsed
+            # replies minutes apart onto a single instant, and the audit trail
+            # then could not say which came first. Under `--at` the stated time
+            # stands: a rehearsal is meant to be a fixed clock.
+            reply_at = now if args.at else windows.as_ist(_dt.datetime.now(tz=windows.IST))
+
             parsed, outcome = handle_reply(
                 store, case, reply,
                 context=f"A Rs {signal.amount_rupees:.0f} {MERCHANT} renewal failed. "
                         f"Today is {today}.",
-                now=now,
+                now=reply_at,
             )
 
             print(f"\n  {DIM}model{RESET}  " + (

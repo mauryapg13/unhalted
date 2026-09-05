@@ -4,6 +4,8 @@
     unhalted compare CASE-1AD69F26  the same case under Razorpay's retry policy
     unhalted cases                  what is open, held, closed
     unhalted queue                  what is waiting on a person
+    unhalted stops                  who this system may not contact
+    unhalted lift-stop N --by NAME  make a suppressed customer contactable again
     unhalted report                 the batch numbers
     unhalted breakeven              what the money argument rests on
     unhalted calibration            whether confidence predicts outcome, on real cases only
@@ -263,6 +265,55 @@ def show_queue(store: Store) -> int:
     return 0
 
 
+def show_stops(store: Store) -> int:
+    """Who this system may not contact, and since when."""
+    standing = store.standing_suppressions()
+    if not standing:
+        print("no standing stops; every customer is contactable")
+        return 0
+
+    print(f"\n{b('automated contact is barred')}  {len(standing)}")
+    for row in standing:
+        detail = f"  {d(row['detail'])}" if row["detail"] else ""
+        print(
+            f"  #{row['id']:<4} {row['code']:<14} {row['scope']} {row['scope_key']}"
+            f"  {d('since ' + row['at'][:16])}{detail}"
+        )
+    print(d("\n  lift one with: uv run unhalted lift-stop <id> --by <name>\n"))
+    return 0
+
+
+def lift_stop(store: Store, suppression_id: int, *, by: str, at: str | None) -> int:
+    """Let a named person make a suppressed customer contactable again.
+
+    Deliberately a person's command and not a code path. Nothing a customer
+    says reaches this — not a payment, not "actually, continue", not a date.
+    Somebody with a name has to decide, and the name is recorded next to the
+    decision.
+    """
+    try:
+        now, note = clock.resolve(at)
+    except clock.BadTime as exc:
+        print(exc)
+        return 2
+    if note:
+        print(note)
+
+    match = next(
+        (r for r in store.standing_suppressions() if int(r["id"]) == suppression_id), None
+    )
+    if match is None:
+        print(f"no standing suppression #{suppression_id}. See: uv run unhalted stops")
+        return 1
+
+    store.lift_suppression(suppression_id, by=by, at=now)
+    print(
+        f"lifted #{suppression_id} ({match['code']}, {match['scope']} "
+        f"{match['scope_key']}) — by {by}"
+    )
+    return 0
+
+
 # -- unhalted run-due ---------------------------------------------------------
 
 
@@ -512,6 +563,11 @@ def main(argv: list[str] | None = None) -> int:
     cases_cmd.add_argument("--state", help="filter by state")
 
     command("queue", help="what is waiting on a person")
+    command("stops", help="who this system may not contact, and since when")
+    lift = command("lift-stop", help="let a named person make a customer contactable again")
+    lift.add_argument("suppression_id", type=int)
+    lift.add_argument("--by", required=True, metavar="NAME",
+                      help="who is lifting it; recorded beside the decision")
     comparison = command(
         "compare", help="the same case under Razorpay's documented retry policy"
     )
@@ -583,6 +639,10 @@ def dispatch(args) -> int:
             return list_cases(store, state=args.state)
         if args.command == "queue":
             return show_queue(store)
+        if args.command == "stops":
+            return show_stops(store)
+        if args.command == "lift-stop":
+            return lift_stop(store, args.suppression_id, by=args.by, at=args.at)
     finally:
         store.close()
     return 0

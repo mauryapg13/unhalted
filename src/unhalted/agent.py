@@ -88,6 +88,35 @@ def handle_failure(
     if already_processed:
         return case
 
+    # A new failure for somebody under a standing stop opens a case — the
+    # money is genuinely owed and the merchant should see it — but nothing is
+    # scheduled against it. An opt-out reaches the person, not the one case
+    # they happened to be on when they gave it, so a fresh failure next month
+    # must not be a fresh reason to message them.
+    standing = store.contact_suppression(
+        case_id=case.id, customer_ref=case.customer_ref
+    )
+    if standing is not None:
+        store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
+        store.record(
+            AuditRecord(
+                case_id=case.id,
+                at=now,
+                decision_type="stop",
+                action="opened, but no automated recovery",
+                inputs={
+                    "suppressed_by": standing["code"],
+                    "suppressed_since": standing["at"],
+                },
+                rules_fired=[f"CONTACT_SUPPRESSED:{standing['code']}"],
+                outcome=(
+                    "the failure is recorded and visible to the merchant; nothing was "
+                    "scheduled, because this customer is under a standing stop"
+                ),
+            )
+        )
+        return store.get_case(case.id) or case
+
     # Before classifying, ask whether this is even a failure. Razorpay documents
     # a capture following a failure on the same transaction, and retrying such a
     # case debits somebody who has already paid — a worse outcome than never
@@ -158,7 +187,7 @@ def handle_failure(
     economics = ladder.evaluate(rung, case.amount_paise)
     if not economics.approved:
         store.set_state(case.id, CaseState.UNRECOVERED)
-        store.cancel_pending("UNECONOMIC", case_id=case.id)
+        store.cancel_pending("UNECONOMIC", case_id=case.id, now=now)
         store.record(
             AuditRecord(
                 case_id=case.id, at=now, decision_type="escalation",
@@ -498,15 +527,31 @@ def apply_stop(
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
 
     if rule.scope is stops.StopScope.CASE:
-        cancelled = store.cancel_pending(rule.code, case_id=case_id)
+        cancelled = store.cancel_pending(rule.code, case_id=case_id, now=now)
     else:
         # Customer and merchant scope both reach past this one case. Merchant
         # scope is not implemented as a merchant sweep — there is one merchant —
         # so it behaves as customer scope and says so rather than pretending.
-        cancelled = store.cancel_pending(rule.code, customer_ref=customer_ref)
+        cancelled = store.cancel_pending(rule.code, customer_ref=customer_ref, now=now)
 
     if rule.terminal_state is not None:
         store.set_state(case_id, rule.terminal_state)
+
+    # Cancelling what is queued is only half of a stop. A rule that suppresses
+    # contact has to keep suppressing it after this instant, or the stop lasts
+    # exactly as long as the queue did — which is how an opt-out ended up
+    # re-armed by the customer's own next message.
+    if rule.suppresses_contact:
+        if rule.scope is stops.StopScope.CASE:
+            scope, key = "case", case_id
+            standing = store.contact_suppression(case_id=case_id)
+        else:
+            scope, key = "customer", customer_ref
+            standing = store.contact_suppression(customer_ref=customer_ref)
+        if standing is None:
+            store.suppress_contact(
+                scope=scope, scope_key=key, code=rule.code, at=now, detail=detail,
+            )
 
     store.record(
         AuditRecord(
@@ -544,6 +589,46 @@ def handle_reply(
     the same whether the words arrived by WhatsApp, by console, or by replay.
     """
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
+
+    # A customer under a standing stop is not re-entered into automation by
+    # anything they say. This is checked before the model is called, not after:
+    # the point is not that the reading would be wrong, it is that no reading
+    # of it may schedule contact. "Actually, continue" at 0.9 confidence is a
+    # sentence, not consent — lifting the stop is `store.lift_suppression`, and
+    # only a named person reaches it.
+    standing = store.contact_suppression(case_id=case.id, customer_ref=case.customer_ref)
+    if standing is not None:
+        store.record(
+            AuditRecord(
+                case_id=case.id,
+                at=now,
+                decision_type="reply",
+                action="not acted on",
+                inputs={
+                    "reply": text,
+                    "suppressed_by": standing["code"],
+                    "suppressed_since": standing["at"],
+                },
+                rules_fired=[f"CONTACT_SUPPRESSED:{standing['code']}"],
+                outcome=(
+                    "the reply is recorded and a person is the only route back; automated "
+                    "contact stays barred and nothing was scheduled"
+                ),
+            )
+        )
+        since = (
+            f"{standing['code']} has been in force since {standing['at'][:10]}; "
+            f"only a person can lift it"
+        )
+        return (
+            ParsedReply(raw=text),
+            replies.ReplyOutcome(
+                needs_human=True,
+                rules_fired=[f"CONTACT_SUPPRESSED:{standing['code']}"],
+                reasons=[since],
+            ),
+        )
+
     parsed = parse_reply(text, context=context)
     outcome = replies.decide(parsed, today=now.date())
 
@@ -587,7 +672,7 @@ def handle_reply(
     # someone to action it, and a reply nobody could read must not silently
     # leave a retry armed.
     if outcome.needs_human:
-        cancelled = store.cancel_pending("HELD_FOR_HUMAN", case_id=case.id)
+        cancelled = store.cancel_pending("HELD_FOR_HUMAN", case_id=case.id, now=now)
         store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
         store.record(
             AuditRecord(
@@ -606,7 +691,7 @@ def handle_reply(
         return parsed, outcome
 
     if outcome.realign_to:
-        store.cancel_pending("REALIGNED", case_id=case.id)
+        store.cancel_pending("REALIGNED", case_id=case.id, now=now)
         # The promise is a day, not an instant — `validate_date` deliberately
         # strips time of day, because "the 2nd" doesn't carry one and a model
         # asked to invent one would be fabricating what the customer said.
@@ -720,7 +805,7 @@ def _verify(
 
     if result.already_paid:
         store.set_state(case.id, CaseState.CLOSED_FALSE_FAILURE)
-        store.cancel_pending("FALSE_FAILURE", case_id=case.id)
+        store.cancel_pending("FALSE_FAILURE", case_id=case.id, now=now)
         store.record(
             AuditRecord(
                 case_id=case.id, at=now, decision_type="stop", action="closed as a false failure",
@@ -828,7 +913,7 @@ def mark_recovered(
     """
     now = windows.as_ist(now or datetime.now(tz=windows.IST))
     case = store.get_case(case_id)
-    cancelled = store.cancel_pending("RECOVERED", case_id=case_id)
+    cancelled = store.cancel_pending("RECOVERED", case_id=case_id, now=now)
     store.set_state(case_id, CaseState.RECOVERED)
     store.record(
         AuditRecord(

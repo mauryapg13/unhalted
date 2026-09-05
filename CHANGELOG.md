@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed
+- **A stop now outlives the queue it emptied.** `apply_stop` cancelled every pending action in
+  scope and, for `OPT_OUT` — the one contact-barring rule with no terminal state, because an
+  opt-out does not close the debt — that cancellation was the whole of its lasting effect. Nothing
+  was written down, so the case stayed `open`, `handle_reply` had nothing to consult, and the
+  customer's own next message re-armed the ladder: in rehearsal, a retry was scheduled two minutes
+  after the audit trail recorded that contacting this customer would be a compliance failure. The
+  rule's `suppresses_contact=True` had been read by nothing since it was written. A stop that bars
+  contact now writes a `contact_suppressions` row at the rule's own scope, checked in three places
+  — `handle_reply` refuses before the model is called, `handle_failure` opens a later case but
+  schedules nothing against it, and the runner checks again before dispatch, because delivery is
+  at-least-once. Nothing a customer says lifts one: not a date, not "actually, continue", not a
+  payment.
+- **The scheduler view stamped queue events with its own clock.** `SCHEDULED`, `CANCELLED` and
+  `DUE` were dated to the poll tick that noticed the row rather than to when the thing happened, so
+  opening the log against an existing database backfilled every historical event to the second the
+  viewer started — the one thing an append-only log exists to keep straight. Cancellations had no
+  time to read, so `pending_actions.cancelled_at` now records one and `cancel_pending` takes a
+  `now` from all seven production call sites; `SCHEDULED` reads `created_at` and `DUE` reads
+  `scheduled_for`. `store.py` still never invents a time — a caller that passes none leaves the
+  column NULL and the viewer falls back to another time off the same row.
+- `scripts/session.py` froze `now` at startup and stamped the whole conversation with it, so
+  replies typed minutes apart shared one timestamp and the audit trail could not order them. A
+  reply is now stamped when it is typed; under `--at` the stated time still stands, since a
+  rehearsal is meant to have a fixed clock.
+
+### Added
+- `unhalted stops` — who this system may not contact, and since when — and `unhalted lift-stop <id>
+  --by <name>`, the only route back from a suppression. Deliberately a person's command with a name
+  recorded beside the decision, and no code path from a customer reply reaches it.
+- `tests/test_stop_is_durable.py`: six tests for the half of a stop that was never tested. Every
+  stop rule was checked for firing correctly; none was checked for still being in force a message
+  later, and all nine passed under that test.
+
 ### Changed
 - The batch measurement is regenerated against the new balance flow, and the README's results table
   with it. Attempts fell from 217 to 84 and contacts rose from 56 to 189 in the same change: an

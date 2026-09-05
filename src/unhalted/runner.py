@@ -273,6 +273,27 @@ def run_due(
             report.lines.append(f"  #{action_id} {kind}: cancelled before it ran")
             continue
 
+        # The last gate before anything reaches a customer. A stop that fired
+        # while this row sat in the queue already cancels it above; this is the
+        # other case — a row armed *after* a standing suppression, or one whose
+        # customer was suppressed by a stop on a different case. Delivery here
+        # is at-least-once, so the check belongs on the execution side too and
+        # not only where actions are scheduled.
+        suppression = store.contact_suppression(
+            case_id=current["case_id"], customer_ref=current["customer_ref"]
+        )
+        if suppression is not None:
+            store.finish_action(
+                action_id, state="cancelled",
+                error=f"contact suppressed by {suppression['code']}",
+            )
+            report.cancelled += 1
+            report.lines.append(
+                f"  #{action_id} {kind}: not run — contact suppressed by "
+                f"{suppression['code']}"
+            )
+            continue
+
         executor = table.get(kind)
         if executor is None:
             store.finish_action(action_id, state="no-adapter",

@@ -841,3 +841,43 @@ entry" for the same reason.
 of fact. Three of these four narrow the answer; one of them replaces it. Nothing about the table's
 shape said which was which, and the wildcard that made the common case convenient is exactly what
 let the uncommon one through.
+
+---
+
+## A stop that lasted exactly as long as the queue it emptied
+
+**What happened:** during a rehearsal of the customer session, the sequence was: a balance failure
+asks when to retry, the customer says "next week thursday try karo", the shell realigns to the
+10th, then the customer says `STOP`. The stop fired correctly — `STOP_RULE:OPT_OUT`, the pending
+retry cancelled, the audit line reading "they asked not to be contacted; continuing is a compliance
+failure, not a lost sale". Then the same person typed "actually, i want to continue" and "next
+tuesday", and the system read the second as a promise-to-pay at 0.85 confidence and **scheduled a
+fresh retry for the 8th**. Two minutes after recording that contacting this customer would be a
+compliance failure, it armed contact with them again.
+
+**Why:** `apply_stop` did two things — cancel every pending action in scope, and set the terminal
+state — and `OPT_OUT` is the rule with `terminal_state=None`, because an opt-out does not close the
+debt. So for that one rule the entire lasting effect of the stop was the cancellation, and a
+cancellation only reaches rows that exist at that instant. Nothing was written down. The case stayed
+`open`, `handle_reply` had nothing to check, and the ladder re-armed on the next inbound message.
+
+Two things made it worse than one leaky rule. `suppresses_contact=True` was already on the rule and
+was read by nothing — a field that describes an intention the code never implemented is worse than
+no field, because it makes the gap invisible to anyone reading the table. And the rule's scope is
+`CUSTOMER`, which is a promise the design could not keep: with no record of the stop anywhere, a
+failure on that customer's *other* case, or their next month's renewal, had nothing to consult
+either.
+
+**What changed:** a stop that suppresses contact now writes a `contact_suppressions` row that
+outlives the queue, at the rule's own scope. Three places read it: `handle_reply` refuses before the
+model is even called, `handle_failure` opens the case but schedules nothing against it, and the
+runner checks once more before dispatching, because delivery is at-least-once and a row can be
+armed or reclaimed after the stop landed. Nothing a customer says lifts one — not a payment, not a
+date, not "actually, continue". `store.lift_suppression` records a name, and `unhalted lift-stop
+<id> --by <name>` is the only route to it.
+
+**The lesson:** cancelling the work is not the same as revoking the permission to do it, and this
+system had a field named for the second while only implementing the first. The tell was there in
+plain sight — a boolean nothing branched on. The nine stop rules were tested for firing correctly;
+none was tested for *still being in force a message later*, and every one of them read as correct
+under that test.
