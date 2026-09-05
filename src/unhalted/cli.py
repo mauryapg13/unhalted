@@ -204,7 +204,8 @@ def show_comparison(store: Store, case_id: str) -> int:
     print(f"\n{b(result.case_id)}   Rs {result.amount_rupees:,.0f}   {result.customer_ref}")
     if result.signal is not None:
         print(d(f"  Razorpay said: reason={result.signal.error_reason}  "
-                f"source={result.signal.error_source}  step={result.signal.error_step}"))
+                f"source={result.signal.error_source}  "
+                f"step={tui.field(result.signal.error_step)}"))
     if result.diagnosis is not None:
         model = result.diagnosis.model_name or "no model call"
         print(d(f"  agent diagnosed {result.diagnosis.klass.value} at "
