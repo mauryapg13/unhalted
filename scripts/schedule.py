@@ -31,7 +31,7 @@ import pathlib
 import sys
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from unhalted import clock, config, tui
 from unhalted.runner import run_due
@@ -90,7 +90,7 @@ def row_time(action: dict[str, Any], key: str, *, fallback: datetime) -> datetim
     return datetime.fromisoformat(raw) if raw else fallback
 
 
-def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
+def cancellation_event(action: dict[str, Any], *, now: datetime) -> Line | None:
     """One cancelled action, or `None` for the one reason that already gets
     its own distinct event elsewhere (RECOVERED, via `audit_lines`) and would
     otherwise print twice for the same real thing that happened.
@@ -112,13 +112,42 @@ def cancellation_event(action: dict[str, Any], *, now: datetime) -> str | None:
     return event("CANCELLED", action["case_id"], f"{action['kind']}  {reason}", now=at)
 
 
-def event(kind: str, case_id: str, detail: str, *, now: datetime) -> str:
+#: Order for events sharing one timestamp, causes before effects. A reply is
+#: read, the stop it triggers fires, and the actions that stop cancels are
+#: cancelled — all inside the same second, and a log that prints those three
+#: backwards argues the opposite of what happened.
+TIE_ORDER = {
+    "REPLY": 0, "REVIEWED": 1, "RECOVERED": 2, "STOPPED": 3, "ESCALATED": 4,
+    "CANCELLED": 5, "SCHEDULED": 6, "DUE": 7, "RECLAIMED": 8,
+    "EXECUTED": 9, "DEFERRED": 9, "NO ADAPTER": 9, "FAILED": 9, "HELD": 9,
+}
+
+
+class Line(NamedTuple):
+    """One printable event, with what it takes to put it in order.
+
+    The view used to print in the order it happened to gather things —
+    cancellations, then pending rows, then the audit trail — which reads
+    correctly only for a scheduler that was already running when each arrived.
+    Opened against an existing database, a whole history arrives in one batch
+    and that grouping overrides chronology: a cancellation from 12:10 printing
+    above the delivery from 12:09 that caused it. Sequence is the entire
+    argument this log exists to make, so it is sorted on the times the events
+    actually carry.
+    """
+
+    at: datetime
+    tie: int
+    text: str
+
+
+def event(kind: str, case_id: str, detail: str, *, now: datetime) -> Line:
     tint = STYLE.get(kind, tui.BLUE)
-    return (
+    return Line(now, TIE_ORDER.get(kind, 9), (
         f"  {tui.paint(f'{now:%H:%M:%S}', tui.DIM)}  "
         f"{tui.pad(tui.chip(kind, tint), 22)} "
         f"{tui.paint(case_id, tui.DIM)}  {detail}"
-    )
+    ))
 
 
 def describe(action: dict[str, Any], now: datetime) -> str:
@@ -135,7 +164,7 @@ def describe(action: dict[str, Any], now: datetime) -> str:
 
 def audit_lines(
     store: Store, seen: set[tuple[str, str, str]], *, now: datetime,
-) -> list[str]:
+) -> list[Line]:
     """Executions and human decisions, both read from the audit trail rather
     than from the runner's own report — so a pass run by another worker, the
     HTTP endpoint, or a reviewer in a different terminal all show up here too.
@@ -165,7 +194,7 @@ def audit_lines(
     this viewer polled, which for anything outside contact hours reads as a
     violation that never occurred.
     """
-    lines: list[str] = []
+    lines: list[Line] = []
     for case in store.all_cases():
         for record in store.timeline(case.id):
             if record.decision_type not in (
@@ -256,7 +285,7 @@ def main() -> int:
     try:
         while True:
             now = stated if args.at else windows.as_ist(datetime.now(tz=windows.IST))
-            lines: list[str] = []
+            lines: list[Line] = []
 
             # Cancellations first. Within one poll a stop rule cancels and then
             # reschedules, and printing the new row above the cancelled ones
@@ -308,7 +337,7 @@ def main() -> int:
 
             if lines:
                 idle_ticks = 0
-                print("\n".join(lines), flush=True)
+                print("\n".join(ln.text for ln in sorted(lines)), flush=True)
             else:
                 idle_ticks += 1
                 if idle_ticks % 20 == 0:

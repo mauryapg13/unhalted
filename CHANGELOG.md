@@ -23,6 +23,13 @@
   `now` from all seven production call sites; `SCHEDULED` reads `created_at` and `DUE` reads
   `scheduled_for`. `store.py` still never invents a time — a caller that passes none leaves the
   column NULL and the viewer falls back to another time off the same row.
+- The scheduler view printed an accurate log out of order. Events were gathered
+  cancellations-first, then pending rows, then the audit trail — which reads correctly only for a
+  scheduler that was already running when each arrived. Opened against an existing database the
+  whole history lands in one batch and that grouping overrode chronology, printing a cancellation
+  above the delivery a minute earlier that caused it. The batch is now ordered on the times its
+  events carry, with a tie-break that keeps cause above effect within a single second: a reply is
+  read, the stop it triggers fires, then the actions that stop cancels are cancelled.
 - `scripts/session.py` froze `now` at startup and stamped the whole conversation with it, so
   replies typed minutes apart shared one timestamp and the audit trail could not order them. A
   reply is now stamped when it is typed; under `--at` the stated time still stands, since a
