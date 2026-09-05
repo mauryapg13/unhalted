@@ -26,6 +26,13 @@ Here the answer is narrow and enforced in code.
 | **Outputs** | a class, a confidence, a draft | money movement, customer contact |
 | **Can be wrong** | yes, and it is caught | no, it is the thing that catches |
 
+One qualification on that table, since it is the project's central claim: of the model's three jobs,
+**diagnosis and reply parsing are wired into the live path and drafting is not**. `core/draft.py`
+writes a message and `shell/lint.py` blocks it if it invents a discount — both real, both tested —
+but every message this system actually sends is one of the three plain, hand-written bodies in
+`shell/notify.py`. Wiring the drafted one in is a decision about spending a model call per nudge
+that has not been made, not a gap nobody noticed.
+
 The model never picks an action. It returns a **scored recommendation**, and every recommendation
 crosses a gate before it becomes an action. The gate is ordinary code with ordinary tests.
 
@@ -186,8 +193,8 @@ The full annotated specification is in [`docs/spec.md`](docs/spec.md).
 
 This matters more than the numbers, so it is stated up front rather than in a footnote.
 
-**Real.** Mandate registration, token state, webhooks and signatures, payment objects and their
-`error_reason` values, and payment-status verification all run against Razorpay test mode. Failed
+**Real.** Mandate registration, token state, webhooks and signatures, and payment objects with their
+`error_reason` values all run against Razorpay test mode. Failed
 payments are produced through a real hosted checkout, with a real signature-verified webhook
 arriving at a real endpoint. What they do **not** yield is a specific documented error reason —
 tested twice, on both checkout surfaces available to this account, Razorpay's error-scenario test
@@ -204,6 +211,20 @@ infrastructure; the volume did not.
 **Implemented but not exercisable.** NPCI window rejection. The shell refuses out-of-window retries
 before it ever calls Razorpay, so the refusal is real logic — but test mode cannot produce a live
 NPCI rejection to compare it against.
+
+**Built, and deliberately not wired in.** Three things, each real code with real tests, none of them
+reached by the live path — listed here rather than left for a reader to discover:
+
+- **Message drafting.** `core/draft.py` and its compliance lint. Every message that actually goes out
+  is one of the plain hand-written bodies in `shell/notify.py`; see the note under [the
+  thesis](#the-thesis).
+- **Payment-status verification.** `shell/verify.py`'s `RazorpayVerifier` asks Razorpay whether an
+  order was since paid by another attempt, which is the check that stops a customer being debited
+  twice. Nothing constructs one, so `handle_failure` runs with no verifier — and the behaviour when
+  none is configured is the safe one: the case is **held for a person** rather than assumed unpaid,
+  because "could not check" is not "not paid". Wiring it needs a live client on the ingest path.
+- **The upper ladder.** Re-authorisation, voice call and human callback have no executor, as does the
+  debit adapter behind every retry. Each refuses out loud and routes to a person.
 
 ## Measurement
 
@@ -233,12 +254,20 @@ regenerated with `uv run python scripts/run_batch.py`.
 
 | | Agent | Razorpay's documented retry | |
 |---|---:|---:|---|
-| Debit attempts scheduled | 217 | 900 | 683 fewer |
+| Debit attempts scheduled | 84 | 900 | 816 fewer |
 | Attempts a retry provably cannot fix | 0 | 108 | 108 avoided |
 | Attempts inside NPCI restricted bands | 0 | 117 | 117 avoided, UPI only |
-| Customer contacts | 56 | 0 | the baseline never contacts anyone |
+| Customer contacts | 189 | 0 | the baseline never contacts anyone |
 | Cases held for a human | 27 | 0 | the baseline has no such path |
+| Intervention spend | ₹225 | ₹0 | messages are not free, and this is what they cost |
 | Diagnoses requiring a model call | **0 of 300** | — | inference spend ₹0.00 |
+
+**Read those first two rows together.** Attempts fell from 217 to 84 and contacts rose from 56 to
+189 in the same change, and the trade is the point rather than a side effect: an empty account no
+longer gets three silent retries guessing at a payday, it gets one message asking when to try. The
+guess cost three debit attempts and told the customer nothing; the question costs ₹1 and produces
+the one fact — when money arrives — that decides whether any retry works at all. A system that
+contacted nobody and spent 217 attempts was cheaper on the wrong axis.
 
 NPCI's execution bands govern **UPI Autopay** and nothing else, so only the UPI share of the
 baseline's attempts is counted against them. An earlier version of this table said 315 by applying

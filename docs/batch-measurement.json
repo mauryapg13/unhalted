@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-09-04 16:58 UTC",
+  "generated_at": "2026-09-04 21:41 UTC",
   "cases_count": 300,
   "holdout": 21,
   "total_paise": 12085000,
   "agent": {
     "cases": 300,
-    "attempts": 217,
+    "attempts": 84,
     "attempts_in_restricted_window": 0,
     "futile_attempts": 0,
-    "messages": 56,
-    "intervention_paise": 9200,
+    "messages": 189,
+    "intervention_paise": 22500,
     "held_for_human": 27,
     "closed_uneconomic": 0,
     "by_class": {
@@ -20,9 +20,9 @@
       "unknown": 4
     },
     "by_rung": {
-      "rung 1": 217,
+      "rung 2": 153,
       "rung 3": 36,
-      "rung 2": 20
+      "rung 1": 84
     },
     "by_confidence_band": {
       "<0.70 held": 27,

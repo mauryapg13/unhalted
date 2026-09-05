@@ -56,7 +56,6 @@ from datetime import timedelta
 
 from unhalted.models import DiagnosisClass, FailureSignal
 from unhalted.shell import windows
-from unhalted.shell.ladder import ENTRY, Rung
 
 #: Razorpay documents three automatic retries for UPI and for cards.
 BASELINE_RETRIES = 3
@@ -176,7 +175,3 @@ def run(signal: FailureSignal, klass: DiagnosisClass) -> BaselineRun:
 
     return result
 
-
-def agent_would_enter_at(klass: DiagnosisClass) -> Rung | None:
-    """Where the agent starts, for comparison against three blind retries."""
-    return ENTRY.get(klass)

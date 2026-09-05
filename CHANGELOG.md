@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Changed
+- The batch measurement is regenerated against the new balance flow, and the README's results table
+  with it. Attempts fell from 217 to 84 and contacts rose from 56 to 189 in the same change: an
+  empty account no longer gets three silent retries guessing at a payday, it gets one message asking
+  when to try. The README now reads those two rows together rather than leaving them to be read as
+  unrelated wins.
+
+### Fixed
+- The README's own "Honesty about the data" section claimed payment-status verification "runs
+  against Razorpay test mode". `shell/verify.py`'s `RazorpayVerifier` is real and would work, but
+  nothing constructs one, so the live path runs with no verifier at all. The behaviour is the safe
+  one — a case that cannot be verified is held for a person rather than assumed unpaid — but the
+  claim was wrong. It now sits under a new "Built, and deliberately not wired in" heading with the
+  two other capabilities in that state: message drafting, and the upper ladder rungs.
+- The thesis table said the model "drafts messages" without qualification. `core/draft.py` and its
+  compliance lint are real and tested, and every message that actually goes out is one of the plain
+  bodies in `shell/notify.py` — stated directly under the table, since that table is the project's
+  central claim.
+- `docs/capturing-fixtures.md` had the real `RAZORPAY_WEBHOOK_SECRET` written into it in plaintext.
+  Replaced with a pointer to `.env`. **The value is still in git history and must be rotated before
+  the repository is made public.**
+
+### Removed
+- `measure.baseline.agent_would_enter_at`, a two-line wrapper around `ENTRY.get` that nothing ever
+  called.
+
 ### Added
 - The README now carries the whole routing table — every documented `error_reason`, the
   `error_source` values that change the answer, the resulting diagnosis, confidence and entry rung,
