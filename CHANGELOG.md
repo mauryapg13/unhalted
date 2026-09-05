@@ -8,9 +8,10 @@
   retry*, and the agent routes it to re-authorisation instead — but the row now says which action
   it needs rather than leaving a reader to infer it. More importantly the ceiling is qualified in
   place: re-authorisation is diagnosed, priced and queued on this deployment and has no adapter to
-  send, so that ceiling is a property of the policy and not of what this account can do. It was
-  already in the README's "Built, and deliberately not wired in"; it was not on the screen carrying
-  the number.
+  send. The first attempt at saying so put two lines of caveat under the headline figure and turned
+  a result screen into a disclaimer; the gap line now names the action that closes it — "diagnosed,
+  priced and queued to re-authorisation" — and the footer points at `unhalted capabilities`, which
+  is the command whose whole job is stating what this deployment can and cannot do.
 
 ### Added
 - `unhalted report` now leads with the money, sorted by what a retry can actually reach: unreachable,

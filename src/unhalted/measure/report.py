@@ -358,13 +358,9 @@ def render_terminal(
             (f"  ceilings at perfect conversion    baseline Rs "
              f"{exposure['baseline_ceiling_paise'] / rupee:,.0f}"
              f"   agent Rs {exposure['agent_ceiling_paise'] / rupee:,.0f}"),
-            ("    reachable in principle, not tonight: the agent's ceiling includes the"
-             " re-authorisation"),
-            ("    rung, which this deployment diagnoses and queues but has no adapter to"
-             " send. See README."),
             (f"  the gap between them              Rs "
              f"{exposure['dominance_paise'] / rupee:,.0f}"
-             f"   — exactly the money a retry provably cannot fix"),
+             f"   — diagnosed, priced and queued to re-authorisation"),
             (f"  chasing it costs                  Rs "
              f"{exposure['breakeven_spend_paise'] / rupee:,.0f}"
              f"   breaks even at {exposure['breakeven_rate'] * 100:.3f}%"
@@ -395,5 +391,9 @@ def render_terminal(
     for rate, a_rup, b_rup in modelled_recovery(total_paise, agent, [0.20, 0.50]):
         lines.append(f"    {rate:>4.0%} succeed   Rs {a_rup:>9,.0f}  vs  Rs {b_rup:>9,.0f}"
                       f"   (+Rs {a_rup - b_rup:,.0f})")
-    lines += ["", "  full report: docs/batch-measurement.md"]
+    lines += [
+        "",
+        ("  full report: docs/batch-measurement.md   ·   "
+         "what this deployment sends: unhalted capabilities"),
+    ]
     return "\n".join(lines)
