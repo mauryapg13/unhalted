@@ -345,8 +345,8 @@ def render_terminal(
         lines += [
             (f"  {'money at risk, by what a retry can reach':<{w}}{'amount':>12}"
              f"{'share':>6}{'cases':>6}"),
-            money("unreachable by retry", exposure["unreachable_paise"],
-                  int(exposure["unreachable_cases"]),
+            money("no retry can fix — needs re-authorisation",
+                  exposure["unreachable_paise"], int(exposure["unreachable_cases"]),
                   "a dead mandate; Razorpay's own wording"),
             money("must not be taken", exposure["must_not_take_paise"],
                   int(exposure["must_not_take_cases"]), "recovering it would be the failure"),
@@ -358,6 +358,10 @@ def render_terminal(
             (f"  ceilings at perfect conversion    baseline Rs "
              f"{exposure['baseline_ceiling_paise'] / rupee:,.0f}"
              f"   agent Rs {exposure['agent_ceiling_paise'] / rupee:,.0f}"),
+            ("    reachable in principle, not tonight: the agent's ceiling includes the"
+             " re-authorisation"),
+            ("    rung, which this deployment diagnoses and queues but has no adapter to"
+             " send. See README."),
             (f"  the gap between them              Rs "
              f"{exposure['dominance_paise'] / rupee:,.0f}"
              f"   — exactly the money a retry provably cannot fix"),

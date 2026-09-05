@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- The batch report's exposure rows read as a contradiction: Rs 12,514 labelled "unreachable by
+  retry" while the agent's ceiling counted it. Both were right — the money is unreachable *by a
+  retry*, and the agent routes it to re-authorisation instead — but the row now says which action
+  it needs rather than leaving a reader to infer it. More importantly the ceiling is qualified in
+  place: re-authorisation is diagnosed, priced and queued on this deployment and has no adapter to
+  send, so that ceiling is a property of the policy and not of what this account can do. It was
+  already in the README's "Built, and deliberately not wired in"; it was not on the screen carrying
+  the number.
+
 ### Added
 - `unhalted report` now leads with the money, sorted by what a retry can actually reach: unreachable,
   must-not-be-taken, unclassified, and contested — then both policies' ceilings at perfect
