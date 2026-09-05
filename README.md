@@ -129,7 +129,11 @@ Sourced from NPCI and Razorpay's recurring-payments documentation, not invented:
   is required, so the case routes differently rather than retrying.
 - **The mandate's own `max_amount`.** Never attempt a debit above the registered ceiling.
 - **Retry cap of 3** per billing cycle, matching NPCI's one-execution-plus-three-retries allowance.
-- **Contact hours and a shared weekly contact ceiling** across every channel.
+- **Contact hours**, 08:00-19:00 IST, on every channel and every kind of message.
+- **A weekly contact ceiling of one message per customer**, counted across every case they have
+  and every channel. The retry cap bounds debits and says nothing about messages: a customer with
+  four failing subscriptions spends no retries at all and, without this, hears from us four times
+  in four days. A message over the budget is deferred, never dropped.
 - **Nine hard stops** — revocation, opt-out, dispute, distress, retry cap, ladder exhaustion,
   chargeback, merchant pause and regulatory hold — that no recommendation at any confidence can
   override.
@@ -176,10 +180,17 @@ short of writing the file themselves:
   communicated" — recorded in [`BREAKAGE.md`](BREAKAGE.md), and the reason neither proposer is
   trusted to write its own answer in.
 
-## Specification as test suite
+## The specification, and what checks it
 
-The behaviour is specified in Gherkin and executed as tests. Every regulatory constraint and every
-stopping rule in [`tests/features/`](tests/features/) is a check that goes red if the shell weakens.
+The behaviour is specified in Gherkin. The feature files are the contract this project is built
+against, and the pytest suite is what executes against them — the constraints they describe are
+tested in `tests/`, scenario by scenario, by hand-written tests rather than by generated step
+definitions. `tests/test_specification.py` holds the feature files themselves to their shape.
+
+That seam is worth stating plainly, because a scenario can be written here and never bound to a
+test: the weekly contact ceiling was specified below, listed above as a hard rule, and implemented
+nowhere until a behavioural audit went looking for it. `tests/test_contact_ceiling.py` exists
+because reading the Gherkin was not enough to know.
 
 ```
 tests/features/

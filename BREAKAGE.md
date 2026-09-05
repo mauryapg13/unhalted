@@ -881,3 +881,41 @@ system had a field named for the second while only implementing the first. The t
 plain sight — a boolean nothing branched on. The nine stop rules were tested for firing correctly;
 none was tested for *still being in force a message later*, and every one of them read as correct
 under that test.
+
+---
+
+## A ceiling that was documented, specified, and absent
+
+**What happened:** a behavioural audit before submission probed the compliance rules by running
+them rather than reading them. Most held. The weekly contact ceiling did not exist. `README.md`
+listed it among the hard rules, `shell/notify.py`'s module docstring said it "sits above" delivery,
+`docs/spec.md` specified it including the multi-channel sharing, and `tests/features/
+stopping_rules.feature` had a scenario for it. There was no config key, no counting, no
+enforcement and no test. `deliver` gated on contact hours and nothing else.
+
+The probe: one customer, four subscriptions failing on four consecutive days. Four messages in four
+days — and **zero retries consumed**, because the balance flow asks before it retries, so the retry
+cap never engaged. Every message was individually correct. Nothing in the system had a view of the
+person.
+
+**Why:** the retry cap and the contact ceiling sound like the same kind of rule and are not. The cap
+is per case and bounds *debits*; the ceiling is per customer and bounds *messages*. Having built and
+tested the first, the second read as covered. And the mechanism that should have caught it could
+not: the Gherkin is parsed for shape by `tests/test_specification.py`, but no scenario is bound to
+executable steps — `tests/step_defs/` holds only `__init__.py`. The README's "Specification as test
+suite" section claimed every stopping rule there "is a check that goes red if the shell weakens".
+For this one, nothing went red, because nothing ran.
+
+**What changed:** `contact.max_per_week` in policy, `windows.contact_budget` as the rule,
+`store.contacts_since` counting from the audit trail rather than a counter kept beside it, and a
+check in `runner.execute_nudge` before every send. A message over budget is deferred to when the
+budget frees, never dropped — losing a customer's only notice that their subscription is lapsing is
+worse than delivering it late. Confirmations that a payment arrived do not count. The four-message
+probe is now `tests/test_contact_ceiling.py`, and the README's specification section says what
+actually executes.
+
+**The lesson:** this is the OPT_OUT failure again, three days later and in a different rule — a
+compliance guarantee written in four places and implemented in none. Both were found by running the
+system rather than reading it. The common cause is a test suite that checks a specification parses
+and a README that describes it as executing; between those two, a scenario can be specified,
+advertised, and never once run.

@@ -34,6 +34,16 @@ contact:
   open: "08:00"
   close: "19:00"
 
+  # How many automated messages one customer may receive in a rolling week,
+  # counted across every case and every channel. The retry cap bounds debits
+  # and says nothing about messages: a customer with four failing
+  # subscriptions consumed no retries at all and still heard from us four
+  # times in four days. A nudge over this budget is deferred, never dropped.
+  # Confirmations that a payment succeeded do not count — they end a
+  # conversation rather than pressing one.
+  max_per_week: 1
+  week: "7d"
+
 retries:
   # NPCI's allowance: one execution plus three retries per billing cycle.
   cap: 3

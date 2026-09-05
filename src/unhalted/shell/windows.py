@@ -11,6 +11,7 @@ NPCI restricts UPI Autopay execution to non-peak hours. The restricted bands are
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -128,6 +129,57 @@ def is_contact_allowed(when: datetime) -> WindowCheck:
         rule_version=WINDOW_RULE_VERSION,
         reason=f"outside contact hours {CONTACT_OPEN:%H:%M}-{CONTACT_CLOSE:%H:%M} IST",
         band=(CONTACT_OPEN, CONTACT_CLOSE),
+    )
+
+
+@dataclass(frozen=True)
+class BudgetCheck:
+    """Whether a customer's weekly contact budget has room."""
+
+    allowed: bool
+    used: int
+    limit: int
+    reason: str
+    #: When the budget next frees, for a message that has to wait.
+    free_at: datetime | None = None
+    rule_version: str = WINDOW_RULE_VERSION
+
+
+def contact_budget(recent: Sequence[datetime], *, now: datetime) -> BudgetCheck:
+    """Whether one more message may go to this customer this week.
+
+    `recent` is every automated message they have already received inside the
+    window, oldest first. The rule counts the person, not the case: the retry
+    cap is per case and bounds debits, so a customer with four failing
+    subscriptions spent no retries and still heard from us on four consecutive
+    days, each message individually correct.
+
+    A message over budget is deferred rather than dropped. Dropping would make
+    the ceiling silently lose a customer's only notice that their subscription
+    is about to lapse, which is a worse outcome than a late one — so the
+    caller is told when the budget frees, and the queue holds the action until
+    then.
+    """
+    now = as_ist(now)
+    window = POLICY.contact_week
+    inside = [as_ist(t) for t in recent if as_ist(t) > now - window]
+    limit = POLICY.contact_max_per_week
+    if len(inside) < limit:
+        return BudgetCheck(
+            allowed=True, used=len(inside), limit=limit,
+            reason=f"{len(inside)} of {limit} messages used this week",
+        )
+    # The oldest message inside the window is the one whose expiry frees a
+    # slot; until it ages out, the budget is spent.
+    free_at = next_allowed_contact(inside[0] + window)
+    days = int(window.total_seconds() // 86400)
+    return BudgetCheck(
+        allowed=False, used=len(inside), limit=limit,
+        reason=(
+            f"contact ceiling reached: {len(inside)} of {limit} messages in the last "
+            f"{days} days"
+        ),
+        free_at=free_at,
     )
 
 

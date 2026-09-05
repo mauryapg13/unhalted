@@ -159,6 +159,24 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
             retry_at=resume,
         )
 
+    # The weekly ceiling, counted across every case this customer has. It sits
+    # here beside contact hours rather than at scheduling time for the same
+    # reason: what matters is how many messages have actually reached them by
+    # the moment one is about to be sent, and two cases scheduled minutes apart
+    # both looked clear when they were queued.
+    budget = windows.contact_budget(
+        store.contacts_since(
+            case.customer_ref, now - windows.POLICY.contact_week
+        ),
+        now=now,
+    )
+    if not budget.allowed:
+        return Outcome(
+            "pending",
+            f"not sent: {budget.reason}",
+            retry_at=budget.free_at,
+        )
+
     # A link is a real network call to Razorpay; check contact hours first so
     # one is not spent generating it for a message that will not go out this
     # pass. `deliver` still owns the actual send decision below — this is a

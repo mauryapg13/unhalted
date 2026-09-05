@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+- **A weekly contact ceiling, one message per customer** (`contact.max_per_week`), counted across
+  every case they have and every channel. The retry cap bounds *debits* and says nothing about
+  *messages*: a customer with four failing subscriptions consumed no retries at all — the balance
+  flow asks before it retries — and still received four messages in four days, each individually
+  correct, because nothing in the system had a view of the person. `windows.contact_budget` is the
+  rule, `store.contacts_since` counts from the audit trail rather than a counter kept beside it,
+  and `runner.execute_nudge` asks before every send. A message over budget is deferred to when the
+  budget frees, never dropped: losing a customer's only notice that their subscription is lapsing
+  is worse than delivering it late. Confirmations that a payment arrived do not count against it.
+
+### Fixed
+- The README listed that ceiling among the hard rules and `shell/notify.py`'s docstring said it sat
+  above delivery, for some time before anything counted contacts. Both now describe what runs.
+- The README's "Specification as test suite" section claimed every stopping rule in
+  `tests/features/` "is a check that goes red if the shell weakens". The feature files are parsed
+  for shape by `tests/test_specification.py`; no scenario is bound to executable steps, and
+  `tests/step_defs/` holds only `__init__.py`. The constraints are tested — thoroughly, in
+  hand-written pytest — but not through the Gherkin, and the contact ceiling is what that gap cost:
+  specified in the feature file, advertised in the README, never once run. The section now says
+  what actually executes.
+
 ### Fixed
 - **A stop now outlives the queue it emptied.** `apply_stop` cancelled every pending action in
   scope and, for `OPT_OUT` — the one contact-barring rule with no terminal state, because an

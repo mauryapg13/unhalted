@@ -705,6 +705,33 @@ class Store:
         with self._tx() as conn:
             return int(conn.execute(sql, params).rowcount)
 
+    def contacts_since(self, customer_ref: str, since: datetime) -> list[datetime]:
+        """When this customer was messaged since `since`, oldest first.
+
+        Counted from the audit trail rather than a counter kept alongside it,
+        because a counter is a second account of what happened and the two
+        drift. Every delivered message already writes an execution record; this
+        reads them.
+
+        Across every case the customer has, which is the whole point — the
+        retry cap is per case and bounds debits, so four failing subscriptions
+        consumed no retries and still produced four messages in four days.
+
+        Confirmations that a payment arrived are not counted. They close a
+        conversation instead of pressing one, and spending a dunning budget on
+        "thank you, this is settled" would mean the customer who paid gets
+        silence next time.
+        """
+        sql = (
+            "SELECT a.at FROM audit a JOIN cases c ON c.id = a.case_id"
+            " WHERE c.customer_ref = ? AND a.decision_type = 'execution'"
+            " AND a.action LIKE 'nudge%' AND a.action LIKE '%done'"
+            " AND a.at >= ? ORDER BY a.at"
+        )
+        with self._read() as conn:
+            rows = conn.execute(sql, (customer_ref, since.isoformat())).fetchall()
+        return [datetime.fromisoformat(r["at"]) for r in rows]
+
     # -- contact suppression ---------------------------------------------
 
     def suppress_contact(
