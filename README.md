@@ -321,10 +321,24 @@ accuracy loss measured against them. See [`docs/reply-evaluation.md`](docs/reply
 
 ## Running it
 
+**Reviewing this rather than reading it?** [`docs/verifying.md`](docs/verifying.md) is the guide
+written for that: every command, what each should print, how to reset the database, and which test
+checks which claim. It has two levels — the first needs no accounts, no keys and no network, and
+still proves the pipeline, the rules and all 538 tests.
+
 ```bash
 uv sync --all-extras
 uv run pytest
 ```
+
+The fastest honest answer to "does it work", needing no credentials at all:
+
+```bash
+./scripts/demo.sh
+```
+
+It starts its own server on a temporary database, rejects a forged webhook, accepts a real signed
+one, and recognises the redelivery of it — then prints the case and its whole timeline.
 
 Read what the agent did:
 

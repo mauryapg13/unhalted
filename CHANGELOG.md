@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- `docs/verifying.md` — the guide for somebody reviewing this rather than reading it. Two levels:
+  the first needs no accounts, no keys and no network and still proves the pipeline, the rules and
+  all 538 tests; the second runs the same code against Razorpay's live test API. Every command
+  carries what it should print, including the ones whose correct answer is a refusal. Covers
+  resetting the database — all three WAL files, not just the main one — and ends with a table
+  mapping each claim in the README to the test that checks it. Linked from the README's "Running
+  it" section.
+
 ### Fixed
 - The batch report's exposure rows read as a contradiction: Rs 12,514 labelled "unreachable by
   retry" while the agent's ceiling counted it. Both were right — the money is unreachable *by a
