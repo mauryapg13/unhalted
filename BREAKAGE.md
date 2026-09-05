@@ -887,7 +887,7 @@ under that test.
 ## A ceiling that was documented, specified, and absent
 
 **What happened:** a behavioural audit before submission probed the compliance rules by running
-them rather than reading them. Most held. The weekly contact ceiling did not exist. `README.md`
+them rather than reading them. Most held. The contact ceiling did not exist. `README.md`
 listed it among the hard rules, `shell/notify.py`'s module docstring said it "sits above" delivery,
 `docs/spec.md` specified it including the multi-channel sharing, and `tests/features/
 stopping_rules.feature` had a scenario for it. There was no config key, no counting, no
@@ -906,7 +906,8 @@ executable steps — `tests/step_defs/` holds only `__init__.py`. The README's "
 suite" section claimed every stopping rule there "is a check that goes red if the shell weakens".
 For this one, nothing went red, because nothing ran.
 
-**What changed:** `contact.max_per_week` in policy, `windows.contact_budget` as the rule,
+**What changed:** `contact.max_per_window` over `contact.window` in policy, `windows.contact_budget`
+as the rule,
 `store.contacts_since` counting from the audit trail rather than a counter kept beside it, and a
 check in `runner.execute_nudge` before every send. A message over budget is deferred to when the
 budget frees, never dropped — losing a customer's only notice that their subscription is lapsing is

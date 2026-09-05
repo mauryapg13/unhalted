@@ -68,10 +68,10 @@ class Policy:
 
     contact_open: time
     contact_close: time
-    #: Automated messages one customer may receive per rolling week, across
+    #: Automated messages one customer may receive per rolling window, across
     #: every case and channel.
-    contact_max_per_week: int
-    contact_week: timedelta
+    contact_max_per_window: int
+    contact_window: timedelta
 
     retry_cap: int
     #: Keyed by the plain DiagnosisClass *value* string, e.g.
@@ -150,8 +150,8 @@ def load(path: pathlib.Path | None = None) -> Policy:
         npci_rule_version=str(_require(raw, "npci", "rule_version")),
         contact_open=_parse_time(str(_require(raw, "contact", "open"))),
         contact_close=_parse_time(str(_require(raw, "contact", "close"))),
-        contact_max_per_week=int(_require(raw, "contact", "max_per_week")),
-        contact_week=_parse_duration(str(_require(raw, "contact", "week"))),
+        contact_max_per_window=int(_require(raw, "contact", "max_per_window")),
+        contact_window=_parse_duration(str(_require(raw, "contact", "window"))),
         retry_cap=int(_require(raw, "retries", "cap")),
         backoff_raw=backoff,
         default_backoff=_parse_duration(str(_require(raw, "retries", "default_backoff"))),

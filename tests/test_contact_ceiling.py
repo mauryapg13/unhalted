@@ -1,4 +1,4 @@
-"""The weekly contact ceiling: a bound on messages, not on debits.
+"""The contact ceiling: a bound on messages, not on debits.
 
 The retry cap is per case and counts debit attempts. It is not a bound on how
 often a person hears from this system, and nothing else was. A customer with
@@ -69,15 +69,21 @@ def test_a_second_message_inside_the_week_is_refused() -> None:
 
 
 def test_a_message_older_than_the_window_does_not_count() -> None:
-    """The window rolls; it is not a calendar week that resets on a Monday."""
-    check = windows.contact_budget([MONDAY], now=MONDAY + timedelta(days=8))
-    assert check.allowed, "a message from over a week ago has aged out"
+    """The window rolls; it is not a calendar period that resets on a Monday.
+
+    Read from policy rather than hard-coded: the window was seven days before
+    it was fourteen, and a test asserting the old number would have gone green
+    against the wrong rule.
+    """
+    aged_out = MONDAY + windows.POLICY.contact_window + timedelta(days=1)
+    check = windows.contact_budget([MONDAY], now=aged_out)
+    assert check.allowed, "a message older than the window has aged out"
 
 
 def test_a_refused_message_is_told_when_the_budget_frees() -> None:
     check = windows.contact_budget([MONDAY], now=MONDAY + timedelta(days=1))
     assert check.free_at is not None
-    assert check.free_at.date() == (MONDAY + timedelta(days=7)).date()
+    assert check.free_at.date() == (MONDAY + windows.POLICY.contact_window).date()
 
 
 # -- through the pipeline -----------------------------------------------------
@@ -110,22 +116,24 @@ def test_the_messages_over_budget_are_deferred_not_dropped(store: Store) -> None
     waiting = [a for a in store.pending_actions() if a["kind"] == "nudge"]
     assert len(waiting) == 3
     for action in waiting:
-        assert datetime.fromisoformat(action["scheduled_for"]) >= MONDAY + timedelta(days=7)
+        assert (datetime.fromisoformat(action["scheduled_for"])
+                >= MONDAY + windows.POLICY.contact_window)
 
 
-def test_a_backlog_drains_one_a_week(store: Store) -> None:
+def test_a_backlog_drains_one_window_at_a_time(store: Store) -> None:
+    window = windows.POLICY.contact_window
     for i in range(4):
         at = MONDAY + timedelta(days=i)
         handle_failure(store, signal(i, at=at), now=at)
         run_due(store, now=at)
 
-    for week in range(1, 4):
-        run_due(store, now=MONDAY + timedelta(days=7 * week))
+    for n in range(1, 4):
+        run_due(store, now=MONDAY + window * n)
 
     sent = delivered(store)
     assert len(sent) == 4, "every message eventually goes out"
     for earlier, later in pairwise(sent):
-        assert later - earlier >= timedelta(days=7), "never two in one week"
+        assert later - earlier >= window, "never two inside one window"
 
 
 def test_a_payment_confirmation_does_not_spend_the_budget(store: Store) -> None:

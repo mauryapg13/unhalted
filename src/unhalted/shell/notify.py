@@ -1,12 +1,12 @@
 """Sending a message to a customer.
 
 The channel is transport; the gating is policy. Contact hours are checked in
-`deliver` below, and the weekly contact ceiling in the runner that calls it —
+`deliver` below, and the contact ceiling in the runner that calls it —
 both *above* the notifier, so they apply identically whether a message goes to
 WhatsApp or to a terminal. That is the point of the seam: swapping the
 transport must not be able to swap the rules.
 
-This docstring claimed the weekly ceiling for some time before anything counted
+This docstring claimed a weekly ceiling for some time before anything counted
 contacts. It is named here now because `windows.contact_budget` exists and
 `runner.execute_nudge` asks it before every send.
 

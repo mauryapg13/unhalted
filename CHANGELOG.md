@@ -3,7 +3,8 @@
 ## [Unreleased]
 
 ### Added
-- **A weekly contact ceiling, one message per customer** (`contact.max_per_week`), counted across
+- **A contact ceiling, one message per customer per fortnight** (`contact.max_per_window`, over
+  `contact.window`), counted across
   every case they have and every channel. The retry cap bounds *debits* and says nothing about
   *messages*: a customer with four failing subscriptions consumed no retries at all — the balance
   flow asks before it retries — and still received four messages in four days, each individually

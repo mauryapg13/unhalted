@@ -60,7 +60,7 @@ def minimal() -> dict:
         "version": "test",
         "npci": {"restricted_bands": [["10:00", "13:00"]], "rule_version": "v"},
         "contact": {"open": "08:00", "close": "19:00",
-                    "max_per_week": 1, "week": "7d"},
+                    "max_per_window": 1, "window": "14d"},
         "retries": {
             "cap": 3,
             "backoff": {"recoverable-technical": ["30m"]},

@@ -134,7 +134,7 @@ def is_contact_allowed(when: datetime) -> WindowCheck:
 
 @dataclass(frozen=True)
 class BudgetCheck:
-    """Whether a customer's weekly contact budget has room."""
+    """Whether a customer's contact budget for the window has room."""
 
     allowed: bool
     used: int
@@ -146,7 +146,7 @@ class BudgetCheck:
 
 
 def contact_budget(recent: Sequence[datetime], *, now: datetime) -> BudgetCheck:
-    """Whether one more message may go to this customer this week.
+    """Whether one more message may go to this customer inside the window.
 
     `recent` is every automated message they have already received inside the
     window, oldest first. The rule counts the person, not the case: the retry
@@ -161,13 +161,13 @@ def contact_budget(recent: Sequence[datetime], *, now: datetime) -> BudgetCheck:
     then.
     """
     now = as_ist(now)
-    window = POLICY.contact_week
+    window = POLICY.contact_window
     inside = [as_ist(t) for t in recent if as_ist(t) > now - window]
-    limit = POLICY.contact_max_per_week
+    limit = POLICY.contact_max_per_window
     if len(inside) < limit:
         return BudgetCheck(
             allowed=True, used=len(inside), limit=limit,
-            reason=f"{len(inside)} of {limit} messages used this week",
+            reason=f"{len(inside)} of {limit} messages used in the window",
         )
     # The oldest message inside the window is the one whose expiry frees a
     # slot; until it ages out, the budget is spent.
