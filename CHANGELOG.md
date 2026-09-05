@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- The demo video, linked from the top of the README beside the pointer to `docs/verifying.md` —
+  watch it, or check it yourself, offered together and in that order.
 - `docs/verifying.md` — the guide for somebody reviewing this rather than reading it. Two levels:
   the first needs no accounts, no keys and no network and still proves the pipeline, the rules and
   all 538 tests; the second runs the same code against Razorpay's live test API. Every command

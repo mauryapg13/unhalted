@@ -11,6 +11,11 @@ customer balances. The gap between `pending` and `halted` is where that money di
 
 `unhalted` lives in that gap.
 
+**[Watch the demo](https://youtu.be/GQcFIfQFZJw)** — a real failed payment diagnosed, a customer
+answering in Hinglish, a stop that holds, and the numbers behind it. To check any of it yourself,
+[`docs/verifying.md`](docs/verifying.md) is written for that; its first half needs no accounts, no
+keys and no network.
+
 ---
 
 ## The thesis
