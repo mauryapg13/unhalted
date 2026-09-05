@@ -434,6 +434,7 @@ def show_report() -> int:
         agent, base,
         cases_count=data["cases_count"], holdout=data["holdout"],
         total_paise=data["total_paise"], generated_at=data["generated_at"],
+        exposure=data.get("exposure"),
     ))
     return 0
 

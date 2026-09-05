@@ -16,7 +16,9 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 
+from unhalted.core.diagnose import diagnose
 from unhalted.measure.generate import generate
+from unhalted.measure.outcomes import breakeven, classify, envelope
 from unhalted.measure.report import render, render_terminal, run_batch
 from unhalted.store import Store
 
@@ -70,11 +72,37 @@ def main() -> int:
 
     REPORT.parent.mkdir(exist_ok=True)
     REPORT.write_text(render(cases, agent, base))
+    # The same money, sorted by what a retry can actually reach. The counted
+    # rows above say what each policy *did*; this says what was there to be
+    # done, which is the half a reader asks for first and the report could not
+    # answer without re-running 300 cases.
+    exposure = classify(
+        (c.signal.amount_paise, diagnose(c.signal).klass) for c in cases
+    )
+    env = envelope(exposure)
+    be = breakeven(exposure)
+
     SUMMARY.write_text(json.dumps({
         "generated_at": generated_at,
         "cases_count": len(cases),
         "holdout": holdout,
         "total_paise": total_paise,
+        "exposure": {
+            "unreachable_paise": exposure.unreachable_paise,
+            "unreachable_cases": exposure.unreachable_cases,
+            "must_not_take_paise": exposure.must_not_take_paise,
+            "must_not_take_cases": exposure.must_not_take_cases,
+            "unclassified_paise": exposure.unclassified_paise,
+            "unclassified_cases": exposure.unclassified_cases,
+            "contested_paise": exposure.contested_paise,
+            "contested_cases": exposure.contested_cases,
+            "baseline_ceiling_paise": env.baseline_ceiling_paise,
+            "agent_ceiling_paise": env.agent_ceiling_paise,
+            "dominance_paise": env.dominance_paise,
+            "breakeven_spend_paise": be.spend_paise,
+            "breakeven_rate": be.rate,
+            "breakeven_leverage": be.leverage,
+        },
         "agent": _plain(agent),
         "base": _plain(base),
     }, indent=2))
@@ -83,6 +111,7 @@ def main() -> int:
     print(render_terminal(
         agent, base, cases_count=len(cases), holdout=holdout,
         total_paise=total_paise, generated_at=generated_at,
+        exposure=json.loads(SUMMARY.read_text())["exposure"],
     ))
     print(f"\n  ({REPORT.relative_to(ROOT)} and {SUMMARY.relative_to(ROOT)} written)")
     return 0

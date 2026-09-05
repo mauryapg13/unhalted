@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- `unhalted report` now leads with the money, sorted by what a retry can actually reach: unreachable,
+  must-not-be-taken, unclassified, and contested — then both policies' ceilings at perfect
+  conversion, the gap between them, and what closing that gap costs. The counted rows underneath say
+  what each policy *did*; this says what was there to be done, which is the half a reader asks about
+  first and the report could not answer. `unhalted breakeven` computed it already, but only over
+  stored cases, so the 300-case batch had no version of it at all. Persisted to
+  `docs/batch-measurement.json` by `scripts/run_batch.py` rather than recomputed, so the terminal
+  view stays a read of one run's numbers.
+
 ### Fixed
 - The batch report labelled a row "customer contacts" where the figure is contacts *scheduled*. The
   batch measures ladder decisions; the contact ceiling is enforced at send time in the runner, so
