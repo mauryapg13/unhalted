@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+- **A reply asking to cancel was swallowed by a weak opt-out read.** "Mujhe nhi chaiye. cancel kro"
+  parsed as cancellation-request at 0.95 and opt-out at 0.50. `replies.decide` is ordered
+  most-protective-first and each branch returns; opt-out is step 3 and clears its bar at 0.50 by
+  design — missing a stop costs a compliance failure — so the weak signal fired and the strong one
+  was never examined. Contact was suppressed, nobody was told to cancel anything, the case stayed
+  `open`, and the mandate went on billing somebody the system had just promised never to contact
+  again. The one thing they actually asked for was the one thing that did not happen. These are two
+  different asks, not two readings of one: the stop still wins on contact, and a cancellation at or
+  above its own threshold now also sets `needs_human`, the same shape `PRECEDENCE:DISPUTE_OVER_PROMISE`
+  already had one branch above.
+- `handle_reply` returned on `stop_code` before it could act on `needs_human`, so the outcome above
+  would have been recorded and then ignored. A stop whose rule carries no terminal state — `OPT_OUT`
+  is the one, because an opt-out does not settle the debt — now holds the case for a person when the
+  reply needs one. Rules that name their own terminal state still win with it.
+
+### Added
+- Every nudge carries a payable link, `ASK_DATE` included. Asking a customer to name a date and
+  giving them no way to just pay makes somebody who has the money today do extra work to hand it
+  over — and rung 2 is named "message with a pay link", which was a contradiction on screen for the
+  one variant that had none. The link is one Razorpay API call per nudge, which is the cost this
+  originally avoided.
+
 ### Changed
 - The terminal views read as one system rather than four. `unhalted case` had no banner at all —
   the one view an auditor lands on was the only one that did not say what it was. A long outcome

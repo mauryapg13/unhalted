@@ -665,6 +665,28 @@ def handle_reply(
             store, outcome.stop_code, case_id=case.id,
             customer_ref=case.customer_ref, detail=text, now=now,
         )
+        # A stop that also needs a person has to reach one. `OPT_OUT` carries no
+        # terminal state — an opt-out does not settle the debt — so a reply
+        # asking to cancel *and* to be left alone suppressed contact, set no
+        # state, and returned here: the cancellation never reached the queue
+        # and the mandate went on billing. The rule's own terminal state wins
+        # where it has one; this only covers the rules that have none.
+        if outcome.needs_human and stops.rule(outcome.stop_code).terminal_state is None:
+            store.set_state(case.id, CaseState.HELD_FOR_HUMAN)
+            store.record(
+                AuditRecord(
+                    case_id=case.id,
+                    at=now,
+                    decision_type="stop",
+                    action="held for a person as well as stopped",
+                    inputs={"stop": outcome.stop_code},
+                    rules_fired=[r for r in outcome.rules_fired if not r.startswith("STOP_RULE")],
+                    outcome=(
+                        "contact is suppressed and the request still needs answering; "
+                        "suppressing contact is not an answer to it"
+                    ),
+                )
+            )
         return parsed, outcome
 
     # Nothing automated may remain scheduled on a case a person now owns.

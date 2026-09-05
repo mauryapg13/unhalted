@@ -317,3 +317,51 @@ def test_a_cancellation_records_when_it_happened(store: Store) -> None:
     assert datetime.fromisoformat(row["cancelled_at"]) == stopped_at, (
         "the cancellation is stamped when it happened, not when it is read back"
     )
+
+
+def test_an_opt_out_that_also_asks_to_cancel_still_reaches_a_person(store: Store) -> None:
+    """Two asks in one reply, not two readings of one.
+
+    "Mujhe nhi chaiye. cancel kro" parsed as cancellation-request at 0.95 and
+    opt-out at 0.50. Opt-out clears its bar at 0.50 deliberately — missing a
+    stop costs a compliance failure — and `decide` returns at the first branch
+    that matches, so the weak signal was fired and the strong one discarded.
+    Contact was suppressed, nobody was told to cancel anything, and the mandate
+    went on billing somebody the system had just promised never to contact
+    again. The one thing they actually asked for was the one thing that did not
+    happen.
+    """
+    from unhalted import agent as agent_module
+    from unhalted.agent import handle_reply
+    from unhalted.models import DetectedIntent, Intent, ParsedReply, Sentiment
+
+    case = store.open_case(signal("pay_CANCEL", "cust_cancel"))
+    now = datetime(2026, 9, 6, 10, 0, tzinfo=IST)
+
+    both = ParsedReply(
+        raw="Mujhe nhi chaiye. cancel kro",
+        intents=[
+            DetectedIntent(type=Intent.CANCELLATION_REQUEST, confidence=0.95,
+                           evidence="cancel kro"),
+            DetectedIntent(type=Intent.OPT_OUT, confidence=0.50,
+                           evidence="Mujhe nhi chaiye"),
+        ],
+        sentiment=Sentiment.NEUTRAL,
+    )
+    original = agent_module.parse_reply
+    agent_module.parse_reply = lambda text, context="": both
+    try:
+        _, outcome = handle_reply(store, case, both.raw, now=now)
+    finally:
+        agent_module.parse_reply = original
+
+    assert outcome.stop_code == "OPT_OUT", "the stop still wins on contact"
+    assert "CANCELLATION_REQUESTED" in outcome.rules_fired, (
+        "and the cancellation still has to reach a person"
+    )
+    assert store.get_case(case.id).state is CaseState.HELD_FOR_HUMAN, (
+        "an opt-out carries no terminal state, so nothing else would hold this case"
+    )
+    assert store.contact_suppression(customer_ref="cust_cancel") is not None, (
+        "and they are still not contacted"
+    )

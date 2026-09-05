@@ -70,6 +70,19 @@ def test_the_question_carries_a_message_that_actually_asks(store) -> None:
     assert "reply with a date" in body.lower()
 
 
+def test_the_question_still_offers_a_way_to_pay_now(store) -> None:
+    """Asking when to retry must not make somebody who has the money today do
+    extra work to hand it over. Every nudge carries a payable link whatever
+    else it says — and rung 2 is named "message with a pay link", which was a
+    contradiction on screen for the one variant that had none.
+    """
+    from unhalted.shell.notify import body_for
+
+    body = body_for(NudgeVariant.ASK_DATE, 499, pay_link="https://rzp.io/x/demo")
+    assert "https://rzp.io/x/demo" in body
+    assert "reply with a date" in body.lower(), "and it still asks"
+
+
 # -- the fallback behind it ---------------------------------------------------
 
 

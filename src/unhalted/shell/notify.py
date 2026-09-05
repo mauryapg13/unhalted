@@ -71,7 +71,9 @@ def nudge_body(
     return "\n".join(lines)
 
 
-def ask_date_body(amount_rupees: float, *, merchant: str = "") -> str:
+def ask_date_body(
+    amount_rupees: float, *, merchant: str = "", pay_link: str | None = None
+) -> str:
     """Ask when to try again, rather than guessing three times.
 
     `core/reply.py` states the reason this message exists: for the largest
@@ -87,6 +89,8 @@ def ask_date_body(amount_rupees: float, *, merchant: str = "") -> str:
     )
     lines = [opening]
     lines.append("When would be a good time to try again? Reply with a date and we'll use it.")
+    if pay_link:
+        lines.append(f"Or pay now, from any account: {pay_link}")
     lines.append("Reply STOP to opt out of these messages.")
     return "\n".join(lines)
 
@@ -131,7 +135,7 @@ def body_for(
     """
     match variant:
         case NudgeVariant.ASK_DATE | NudgeVariant.ASK_DATE.value:
-            return ask_date_body(amount_rupees, merchant=merchant)
+            return ask_date_body(amount_rupees, merchant=merchant, pay_link=pay_link)
         case NudgeVariant.EXHAUSTED | NudgeVariant.EXHAUSTED.value:
             return exhausted_body(amount_rupees, merchant=merchant, pay_link=pay_link)
         case _:

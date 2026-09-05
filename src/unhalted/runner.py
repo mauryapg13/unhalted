@@ -58,7 +58,6 @@ from unhalted.shell.notify import (
     ConsoleNotifier,
     Message,
     Notifier,
-    NudgeVariant,
     body_for,
     deliver,
 )
@@ -196,16 +195,16 @@ def execute_nudge(store: Store, action: dict[str, Any], now: datetime) -> Outcom
         )
 
     variant = action.get("variant")
-    # Asking someone to name a date does not need a payable link, and a link
-    # is a real API call with a real rate limit. Only fetch one for the
-    # messages that actually carry it.
-    link = None
-    if variant != NudgeVariant.ASK_DATE.value:
-        link = paylink.create_payment_link(
-            amount_paise=case.amount_paise,
-            description=f"payment retry for {case.id}",
-            reference_id=case.id,
-        )
+    # Every nudge carries a payable link, whatever it says. Asking a customer
+    # to name a date and giving them no way to just pay makes somebody who has
+    # the money today do extra work to hand it over — and the rung is named
+    # "message with a pay link", which was a contradiction on screen for the
+    # one variant that had none.
+    link = paylink.create_payment_link(
+        amount_paise=case.amount_paise,
+        description=f"payment retry for {case.id}",
+        reference_id=case.id,
+    )
     notifier: Notifier = ConsoleNotifier()
     message = Message(
         customer_ref=case.customer_ref,
